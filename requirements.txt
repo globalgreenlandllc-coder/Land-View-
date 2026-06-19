@@ -1,0 +1,5 @@
+# Backend (Phase 1). Standard library covers geocode/satellite/scale; Flask serves
+# the API. Image-generation providers (optional) are called via urllib — no SDK
+# needed; just set RENDER_PROVIDER + the matching API key to enable real renders.
+flask>=3.0
+flask-cors>=4.0
