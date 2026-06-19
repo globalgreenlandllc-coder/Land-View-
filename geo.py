@@ -20,6 +20,11 @@ import urllib.request
 _UA = {"User-Agent": "Land-View/1.0 (landscape design tool)"}
 M_PER_DEG_LAT = 111_320.0
 SQM_TO_SQFT = 10.7639
+_MERC_R = 6_378_137.0  # Web Mercator earth radius (m)
+
+# A Nominatim bbox larger than this almost certainly isn't a single lot (city /
+# region / vague query) — treat the lot size as unknown rather than report nonsense.
+_MAX_LOT_SQFT = 1_000_000  # ~23 acres
 
 ESRI_EXPORT = ("https://services.arcgisonline.com/arcgis/rest/services/"
                "World_Imagery/MapServer/export")
@@ -40,18 +45,24 @@ def m_per_deg_lng(lat: float) -> float:
 # ---------------------------------------------------------------------------
 
 def geocode(q: str) -> dict:
-    """Address -> {lat, lng, display_name, bbox:[s,n,w,e]} via Nominatim."""
+    """Address -> {lat, lng, display_name, osm_bbox:[s,n,w,e]|None} via Nominatim."""
     url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
         {"q": q, "format": "json", "limit": 1, "addressdetails": 0})
     hits = _get_json(url)
     if not hits:
         raise ValueError("address not found")
     h = hits[0]
-    s, n, w, e = (float(x) for x in h["boundingbox"])  # [south, north, west, east]
+    bb = h.get("boundingbox")
+    osm_bbox = None
+    if bb and len(bb) == 4:
+        try:
+            osm_bbox = [float(x) for x in bb]  # [south, north, west, east]
+        except (TypeError, ValueError):
+            osm_bbox = None
     return {
         "lat": float(h["lat"]), "lng": float(h["lon"]),
         "display_name": h.get("display_name", q),
-        "osm_bbox": [s, n, w, e],
+        "osm_bbox": osm_bbox,
     }
 
 
@@ -59,19 +70,27 @@ def geocode(q: str) -> dict:
 # View bbox + satellite URL + scale
 # ---------------------------------------------------------------------------
 
-def view_bbox(lat: float, lng: float, span_m: float = 120.0):
-    """Square-ish bbox (in degrees) ~span_m across, centred on the point."""
-    dlat = (span_m / 2) / M_PER_DEG_LAT
-    dlng = (span_m / 2) / m_per_deg_lng(lat)
-    return {"south": lat - dlat, "north": lat + dlat,
-            "west": lng - dlng, "east": lng + dlng}
+def _to_mercator(lat: float, lng: float):
+    """WGS84 -> Web Mercator (EPSG:3857) metres."""
+    x = _MERC_R * math.radians(lng)
+    y = _MERC_R * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+    return x, y
 
 
-def esri_satellite_url(bbox: dict, size_px: int = 700) -> str:
-    """Esri World Imagery export URL for a lat/lng bbox (EPSG:4326)."""
+def esri_satellite_url(lat: float, lng: float, span_m: float = 120.0,
+                       size_px: int = 700) -> str:
+    """
+    Esri World Imagery export URL, requested in Web Mercator (EPSG:3857) with a
+    square-in-metres bbox into a square pixel frame, so the returned imagery is
+    NOT geometrically distorted (the 4326 path stretched longitude away from the
+    equator). ``span_m`` is the approximate ground width shown.
+    """
+    # Mercator over-scales by 1/cos(lat); compensate so the ground span ~= span_m.
+    merc_half = (span_m / math.cos(math.radians(lat))) / 2
+    x, y = _to_mercator(lat, lng)
     params = {
-        "bbox": f"{bbox['west']},{bbox['south']},{bbox['east']},{bbox['north']}",
-        "bboxSR": 4326, "imageSR": 4326,
+        "bbox": f"{x - merc_half},{y - merc_half},{x + merc_half},{y + merc_half}",
+        "bboxSR": 3857, "imageSR": 3857,
         "size": f"{size_px},{size_px}",
         "format": "jpg", "f": "image",
     }
@@ -132,31 +151,46 @@ def house_footprint_sqft(lat: float, lng: float) -> float | None:
 def property_intake(address: str) -> dict:
     g = geocode(address)
     lat, lng = g["lat"], g["lng"]
-    s, n, w, e = g["osm_bbox"]
 
-    # Lot estimate from the OSM bounding box (approximate).
-    lot_sqft = round(_bbox_area_sqft(s, n, w, e))
+    warnings = []
+
+    # Lot estimate from the OSM bounding box (rough). The Nominatim bbox is only a
+    # proxy for the parcel and can be off by a lot, so we clamp obviously-wrong
+    # values to None rather than report nonsense (a parcel API gives true lots).
+    lot_sqft = None
+    if g["osm_bbox"]:
+        s, n, w, e = g["osm_bbox"]
+        raw = round(_bbox_area_sqft(s, n, w, e))
+        if 0 < raw <= _MAX_LOT_SQFT:
+            lot_sqft = raw
+        else:
+            warnings.append("Lot size unavailable for this result (not a single parcel).")
+    else:
+        warnings.append("No lot boundary found for this address.")
+
     house_sqft = house_footprint_sqft(lat, lng)
 
-    # Backyard ~ usable open space: a fraction of lot minus house (rough heuristic).
+    # Usable backyard ~ open space behind/around the house (rough heuristic).
+    backyard_sqft = None
     if lot_sqft:
-        backyard_sqft = max(0, round((lot_sqft - (house_sqft or lot_sqft * 0.18)) * 0.45))
-    else:
-        backyard_sqft = None
+        open_space = lot_sqft - (house_sqft if house_sqft else round(lot_sqft * 0.20))
+        cand = round(open_space * 0.5)
+        backyard_sqft = cand if cand >= 200 else None
+        if backyard_sqft is None:
+            warnings.append("Lot too small to estimate a backyard; confirm on site.")
 
-    bbox = view_bbox(lat, lng, span_m=120)
-    width_m = (bbox["east"] - bbox["west"]) * m_per_deg_lng(lat)
-
+    span_m = 120
     return {
         "address": g["display_name"],
         "lat": lat, "lng": lng,
-        "bbox": bbox,
-        "satellite_url": esri_satellite_url(bbox),
+        "satellite_url": esri_satellite_url(lat, lng, span_m=span_m),
         "sizes": {
-            "lot_sqft": lot_sqft or None,
+            "lot_sqft": lot_sqft,
             "house_sqft": house_sqft,
             "backyard_sqft": backyard_sqft,
-            "view_width_ft": round(width_m * 3.28084),
+            "view_width_ft": round(span_m * 3.28084),  # satellite frame width, not the lot
         },
-        "scale_note": "Approximate, derived from map imagery — confirm on site.",
+        "scale_note": "Rough estimates from map imagery — confirm on site. "
+                      "Connect a parcel API for exact lot boundaries."
+                      + ((" " + " ".join(warnings)) if warnings else ""),
     }

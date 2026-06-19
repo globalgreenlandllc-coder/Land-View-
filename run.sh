@@ -20,7 +20,15 @@ API_PID=$!
 cleanup() { echo; echo "▸ stopping…"; kill "$API_PID" 2>/dev/null || true; [ -n "${UI_PID:-}" ] && kill "$UI_PID" 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
-for _ in $(seq 1 20); do curl -fsS "http://localhost:$API_PORT/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+healthy=0
+for _ in $(seq 1 30); do
+  curl -fsS "http://localhost:$API_PORT/api/health" >/dev/null 2>&1 && { healthy=1; break; }
+  sleep 0.5
+done
+if [ "$healthy" != 1 ]; then
+  echo "✗ API failed to start — see /tmp/landview-api.log:"; tail -n 20 /tmp/landview-api.log || true
+  exit 1
+fi
 
 echo "▸ starting UI  on http://localhost:$UI_PORT"
 echo; echo "  ➜  Open  http://localhost:$UI_PORT   (Ctrl+C to stop both)"; echo

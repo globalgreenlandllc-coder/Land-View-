@@ -19,14 +19,24 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState("");   // "" | "property" | "render"
   const [error, setError] = useState("");
+  const [stylesError, setStylesError] = useState(false);
+  const [satError, setSatError] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
 
-  useEffect(() => { api.getStyles().then((d) => setStyles(d.styles)).catch(() => {}); }, []);
+  useEffect(() => {
+    api.getStyles().then((d) => setStyles(d.styles))
+      .catch(() => setStylesError(true));
+  }, []);
+
+  // Inputs changed since the last render -> the shown before/after is stale.
+  function pickStyle(k) { setStyleKey(k); setResult(null); }
+  function changeVision(v) { setVision(v); setResult(null); }
+  function changeTime(k) { setTimeOfDay(k); setResult(null); }
 
   async function findProperty(e) {
     e?.preventDefault();
     if (!address.trim()) return;
-    setLoading("property"); setError(""); setResult(null);
+    setLoading("property"); setError(""); setResult(null); setSatError(false);
     try {
       setProperty(await api.getProperty(address.trim()));
     } catch (e2) {
@@ -52,10 +62,11 @@ export default function App() {
         : (url.includes("arcgisonline.com") ? api.proxied(url) : url);
       const blob = await (await fetch(src)).blob();
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
+      const objUrl = URL.createObjectURL(blob);
+      a.href = objUrl;
       a.download = "land-view-design.png";
       document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000); // revoke after download starts
     } catch {
       window.open(url, "_blank");
     }
@@ -86,7 +97,9 @@ export default function App() {
           {property && (
             <div className="prop">
               <div className="sat">
-                <img src={property.satellite_url} alt="satellite view" />
+                {satError
+                  ? <div className="sat-fallback">Satellite image unavailable for this location.</div>
+                  : <img src={property.satellite_url} alt="satellite view" onError={() => setSatError(true)} />}
                 <span className="sat-tag">Satellite · current</span>
               </div>
               <div className="meta">
@@ -109,11 +122,12 @@ export default function App() {
             <h2><span className="num">2</span> Design</h2>
 
             <label className="lbl">Style</label>
+            {stylesError && <div className="err">Couldn't load styles — is the API running?</div>}
             <div className="styles">
               {styles.map((s) => (
-                <button key={s.key}
+                <button key={s.key} type="button" aria-pressed={styleKey === s.key}
                   className={"style-card" + (styleKey === s.key ? " on" : "")}
-                  onClick={() => setStyleKey(s.key)}>
+                  onClick={() => pickStyle(s.key)}>
                   <div className="swatches">
                     {s.palette.map((c, i) => <span key={i} style={{ background: c }} />)}
                   </div>
@@ -124,17 +138,18 @@ export default function App() {
             </div>
 
             <label className="lbl">Describe the vision</label>
-            <textarea rows={3} value={vision} onChange={(e) => setVision(e.target.value)}
+            <textarea rows={3} value={vision} onChange={(e) => changeVision(e.target.value)}
               placeholder='e.g. "kidney pool, cedar privacy fence, stone patio with seating, trees along the back"' />
 
             <label className="lbl">Lighting</label>
             <div className="seg">
               {TIMES.map(([k, label]) => (
-                <button key={k} className={timeOfDay === k ? "on" : ""} onClick={() => setTimeOfDay(k)}>{label}</button>
+                <button key={k} type="button" aria-pressed={timeOfDay === k}
+                  className={timeOfDay === k ? "on" : ""} onClick={() => changeTime(k)}>{label}</button>
               ))}
             </div>
 
-            <button className="primary block big" disabled={loading === "render"} onClick={generate}>
+            <button type="button" className="primary block big" disabled={loading === "render"} onClick={generate}>
               {loading === "render" ? "Generating…" : "✨ Generate design"}
             </button>
           </section>
@@ -151,6 +166,7 @@ export default function App() {
                 real photorealistic render. The exact AI prompt is shown below.
               </div>
             )}
+            {result.note && !result.demo && <div className="demo-banner">{result.note}</div>}
             <div className="ba">
               <figure>
                 <img src={result.before_url} alt="before" />
@@ -163,9 +179,9 @@ export default function App() {
             </div>
 
             <div className="actions">
-              <button className="primary" onClick={downloadAfter}>⬇ Export image</button>
-              <button onClick={() => window.print()}>🖨 Print</button>
-              <button onClick={() => setShowPrompt((v) => !v)}>
+              <button type="button" className="primary" onClick={downloadAfter}>⬇ Export image</button>
+              <button type="button" onClick={() => window.print()}>🖨 Print</button>
+              <button type="button" onClick={() => setShowPrompt((v) => !v)}>
                 {showPrompt ? "Hide" : "View"} AI prompt
               </button>
             </div>

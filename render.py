@@ -70,10 +70,11 @@ def build_prompt(prop: dict, style_key: str, vision: str,
         f"Overall style: {style['prompt_fragment']}. "
         f"Use materials: {style['materials']}; planting: {style['plants']}. "
         f"Lighting: {lighting}. "
+        "Render from the SAME overhead aerial viewpoint as the reference image "
+        "(top-down bird's-eye), so the result aligns 1:1 with the real property. "
         "Photorealistic, true-to-life materials (real water, grass, wood, stone), "
-        "accurate shadows and reflections, high detail, professional landscape "
-        "photography, believable perspective. Not a diagram, not clip art, not a "
-        "flat plan."
+        "accurate sun shadows, high detail, drone/aerial photography look. "
+        "Not a diagram, not clip art, not a flat plan."
     )
 
 
@@ -150,9 +151,14 @@ def _call_provider(provider: str, prompt: str, neg: str, image_url: str,
 
 
 def _fetch_bytes(url: str) -> bytes:
+    # Defense in depth: the server already allow-lists property.satellite_url, but
+    # never let a provider path fetch file://, ftp://, etc.
+    import urllib.parse
     import urllib.request
+    if urllib.parse.urlparse(url).scheme not in ("http", "https"):
+        raise ValueError("refusing to fetch non-http(s) URL")
     with urllib.request.urlopen(url, timeout=30) as r:
-        return r.read()
+        return r.read(16 * 1024 * 1024)
 
 
 def _openai_edit(prompt: str, image_url: str) -> str:
