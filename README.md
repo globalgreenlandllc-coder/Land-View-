@@ -5,9 +5,17 @@ pull real satellite imagery and real-world scale → pick a design style and
 describe the vision → generate a **photorealistic backyard render conditioned on
 the client's actual property** → present before/after and export.
 
-> **Phase 1 (this build):** address → satellite → estimated sizes → style preset →
-> vision → engineered render prompt → before/after + export. The render step runs
-> in **demo mode** until an image-generation API is connected (see below).
+**Built (Phases 1–3):**
+- **Phase 1** — address → satellite → estimated sizes → style preset → vision →
+  engineered render prompt → before/after + image export.
+- **Phase 2** — configurable element editor (pools, decks, patios, pergolas,
+  fences, plantings, lighting… each with per-element materials/options), re-render
+  on change, and **save/reload designs** (SQLite).
+- **Phase 3** — rough **cost estimate**, **client PDF** (before/after + elements +
+  budget), day/dusk/evening lighting, mobile-friendly.
+
+> The render step runs in **demo mode** until an image-generation API is connected
+> (see below) — everything else is fully functional.
 
 ## Quick start
 

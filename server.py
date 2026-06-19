@@ -15,6 +15,7 @@ Run:  python server.py            (http://localhost:8000)
 """
 from __future__ import annotations
 
+import base64
 import ipaddress
 import os
 import socket
@@ -25,8 +26,12 @@ import urllib.request
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
+import cost as cost_mod
 import geo
+import pdf as pdf_mod
 import render
+import store as designs
+from elements import ELEMENTS
 from styles import STYLES
 
 app = Flask(__name__)
@@ -133,10 +138,109 @@ def render_endpoint():
             elements=elements,
             time_of_day=str(body.get("time_of_day", "day")),
         )
+        result["cost"] = cost_mod.estimate(elements or [], prop.get("sizes"))
     except Exception:
         app.logger.exception("render failed")
         return jsonify({"error": "render failed"}), 500
     return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Elements catalog + cost
+# ---------------------------------------------------------------------------
+
+@app.get("/api/elements")
+def elements_catalog():
+    return jsonify({"elements": ELEMENTS})
+
+
+@app.post("/api/cost")
+def cost_endpoint():
+    body = request.get_json(force=True, silent=True) or {}
+    els = body.get("elements")
+    if els is not None and not isinstance(els, list):
+        return jsonify({"error": "elements must be a list"}), 400
+    return jsonify(cost_mod.estimate(els or [], body.get("sizes")))
+
+
+# ---------------------------------------------------------------------------
+# Saved designs
+# ---------------------------------------------------------------------------
+
+@app.get("/api/designs")
+def designs_index():
+    return jsonify({"designs": designs.list_designs()})
+
+
+@app.post("/api/designs")
+def designs_save():
+    body = request.get_json(force=True, silent=True) or {}
+    return jsonify(designs.save_design(body))
+
+
+@app.get("/api/designs/<did>")
+def designs_get(did):
+    d = designs.get_design(did)
+    return (jsonify(d), 200) if d else (jsonify({"error": "not found"}), 404)
+
+
+@app.delete("/api/designs/<did>")
+def designs_delete(did):
+    return jsonify({"ok": designs.delete_design(did)})
+
+
+# ---------------------------------------------------------------------------
+# PDF client presentation
+# ---------------------------------------------------------------------------
+
+def _resolve_image_bytes(u: str):
+    if not u:
+        return None
+    if u.startswith("data:"):
+        try:
+            return base64.b64decode(u.split(",", 1)[1])
+        except Exception:
+            return None
+    if is_allowed_image_url(u):
+        try:
+            return safe_image_fetch(u)[0]
+        except Exception:
+            return None
+    # trusted provider https URL (real renders) — bounded, no-redirect fetch
+    try:
+        if urllib.parse.urlparse(u).scheme != "https":
+            return None
+        req = urllib.request.Request(u, headers={"User-Agent": "Land-View/1.0"})
+        with _no_redirect_opener.open(req, timeout=20) as r:
+            return r.read(_MAX_IMG_BYTES + 1)[:_MAX_IMG_BYTES]
+    except Exception:
+        return None
+
+
+@app.post("/api/pdf")
+def pdf_endpoint():
+    body = request.get_json(force=True, silent=True) or {}
+    prop = body.get("property") or {}
+    elements = body.get("elements") or []
+    design = {
+        "address": body.get("address") or prop.get("address", ""),
+        "style": body.get("style", "modern"),
+        "vision": body.get("vision", ""),
+        "elements": elements,
+        "time_of_day": body.get("time_of_day", "day"),
+    }
+    cost = cost_mod.estimate(elements, prop.get("sizes"))
+    before = _resolve_image_bytes(prop.get("satellite_url"))
+    after = _resolve_image_bytes(body.get("after_url") or prop.get("satellite_url"))
+    try:
+        data = pdf_mod.build_pdf(design, prop, cost, before, after)
+    except Exception:
+        app.logger.exception("pdf failed")
+        return jsonify({"error": "pdf generation failed"}), 500
+    addr = (design["address"] or "design").split(",")[0]
+    fname = "Land-View - " + "".join(c for c in addr if c.isalnum() or c in " -") + ".pdf"
+    return Response(data, mimetype="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.get("/api/img")

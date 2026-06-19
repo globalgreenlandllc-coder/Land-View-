@@ -3,3 +3,5 @@
 # needed; just set RENDER_PROVIDER + the matching API key to enable real renders.
 flask>=3.0
 flask-cors>=4.0
+reportlab>=4.0
+

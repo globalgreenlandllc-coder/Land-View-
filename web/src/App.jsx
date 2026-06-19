@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
+import ElementEditor from "./components/ElementEditor.jsx";
+import CostPanel from "./components/CostPanel.jsx";
+import DesignsBar from "./components/DesignsBar.jsx";
 
 const TIMES = [
   ["day", "☀️ Day"],
@@ -11,10 +14,13 @@ const sqft = (n) => (n == null ? "—" : n.toLocaleString() + " sq ft");
 
 export default function App() {
   const [styles, setStyles] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [address, setAddress] = useState("");
   const [property, setProperty] = useState(null);
   const [styleKey, setStyleKey] = useState("modern");
   const [vision, setVision] = useState("");
+  const [els, setEls] = useState([]);
+  const [cost, setCost] = useState(null);
   const [timeOfDay, setTimeOfDay] = useState("day");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState("");   // "" | "property" | "render"
@@ -24,14 +30,50 @@ export default function App() {
   const [showPrompt, setShowPrompt] = useState(false);
 
   useEffect(() => {
-    api.getStyles().then((d) => setStyles(d.styles))
-      .catch(() => setStylesError(true));
+    api.getStyles().then((d) => setStyles(d.styles)).catch(() => setStylesError(true));
+    api.getElements().then((d) => setCatalog(d.elements)).catch(() => {});
   }, []);
+
+  // Recompute the cost estimate (debounced) whenever the elements change.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      api.cost({ elements: els, sizes: property?.sizes })
+        .then(setCost).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [els, property]);
 
   // Inputs changed since the last render -> the shown before/after is stale.
   function pickStyle(k) { setStyleKey(k); setResult(null); }
   function changeVision(v) { setVision(v); setResult(null); }
   function changeTime(k) { setTimeOfDay(k); setResult(null); }
+  function changeEls(next) { setEls(next); setResult(null); }
+
+  function buildDesign() {
+    return { address: property?.address || address, property, style: styleKey,
+             vision, elements: els, time_of_day: timeOfDay };
+  }
+  function loadDesign(d) {
+    if (!d) return;
+    setProperty(d.property || null);
+    setAddress(d.address || "");
+    setStyleKey(d.style || "modern");
+    setVision(d.vision || "");
+    setEls(d.elements || []);
+    setTimeOfDay(d.time_of_day || "day");
+    setResult(null);
+  }
+  async function downloadPdf() {
+    try {
+      const { blob, filename } = await api.downloadPdf({
+        ...buildDesign(), after_url: result?.after_url,
+      });
+      const a = document.createElement("a");
+      const u = URL.createObjectURL(blob);
+      a.href = u; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(u), 4000);
+    } catch (e) { setError(e.message); }
+  }
 
   async function findProperty(e) {
     e?.preventDefault();
@@ -47,7 +89,8 @@ export default function App() {
   async function generate() {
     setLoading("render"); setError("");
     try {
-      setResult(await api.render({ property, style: styleKey, vision, time_of_day: timeOfDay }));
+      setResult(await api.render({ property, style: styleKey, vision,
+        elements: els, time_of_day: timeOfDay }));
     } catch (e2) {
       setError(e2.message);
     } finally { setLoading(""); }
@@ -141,6 +184,9 @@ export default function App() {
             <textarea rows={3} value={vision} onChange={(e) => changeVision(e.target.value)}
               placeholder='e.g. "kidney pool, cedar privacy fence, stone patio with seating, trees along the back"' />
 
+            <label className="lbl">Elements</label>
+            <ElementEditor catalog={catalog} els={els} onChange={changeEls} />
+
             <label className="lbl">Lighting</label>
             <div className="seg">
               {TIMES.map(([k, label]) => (
@@ -152,6 +198,17 @@ export default function App() {
             <button type="button" className="primary block big" disabled={loading === "render"} onClick={generate}>
               {loading === "render" ? "Generating…" : "✨ Generate design"}
             </button>
+
+            <label className="lbl" style={{ marginTop: 18 }}>Estimated budget</label>
+            <CostPanel cost={cost} />
+          </section>
+        )}
+
+        {/* SAVED DESIGNS */}
+        {property && (
+          <section className="card">
+            <h2><span className="num">★</span> My designs</h2>
+            <DesignsBar buildDesign={buildDesign} onLoad={loadDesign} />
           </section>
         )}
 
@@ -180,6 +237,7 @@ export default function App() {
 
             <div className="actions">
               <button type="button" className="primary" onClick={downloadAfter}>⬇ Export image</button>
+              <button type="button" onClick={downloadPdf}>📄 Client PDF</button>
               <button type="button" onClick={() => window.print()}>🖨 Print</button>
               <button type="button" onClick={() => setShowPrompt((v) => !v)}>
                 {showPrompt ? "Hide" : "View"} AI prompt
