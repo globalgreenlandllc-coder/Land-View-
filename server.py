@@ -35,6 +35,7 @@ from elements import ELEMENTS
 from styles import STYLES
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024  # cap request bodies at 4 MB
 # Scope CORS to the local dev origins instead of "*".
 CORS(app, resources={r"/api/*": {"origins": [
     "http://localhost:5174", "http://127.0.0.1:5174",
@@ -160,7 +161,11 @@ def cost_endpoint():
     els = body.get("elements")
     if els is not None and not isinstance(els, list):
         return jsonify({"error": "elements must be a list"}), 400
-    return jsonify(cost_mod.estimate(els or [], body.get("sizes")))
+    try:
+        return jsonify(cost_mod.estimate(els or [], body.get("sizes")))
+    except Exception:
+        app.logger.exception("cost failed")
+        return jsonify({"error": "invalid input"}), 400
 
 
 # ---------------------------------------------------------------------------
@@ -206,15 +211,10 @@ def _resolve_image_bytes(u: str):
             return safe_image_fetch(u)[0]
         except Exception:
             return None
-    # trusted provider https URL (real renders) — bounded, no-redirect fetch
-    try:
-        if urllib.parse.urlparse(u).scheme != "https":
-            return None
-        req = urllib.request.Request(u, headers={"User-Agent": "Land-View/1.0"})
-        with _no_redirect_opener.open(req, timeout=20) as r:
-            return r.read(_MAX_IMG_BYTES + 1)[:_MAX_IMG_BYTES]
-    except Exception:
-        return None
+    # Anything else (arbitrary client-supplied URL) is NOT fetched — that would be
+    # SSRF. Real provider renders arrive as data: URLs, or add the provider host to
+    # the image allow-list to enable them here safely.
+    return None
 
 
 @app.post("/api/pdf")

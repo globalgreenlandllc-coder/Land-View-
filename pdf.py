@@ -69,7 +69,7 @@ def build_pdf(design: dict, prop: dict, cost: dict,
         flow.append(Paragraph(design["vision"], s["Normal"]))
         flow.append(Spacer(1, 10))
 
-    sizes = (prop or {}).get("sizes", {})
+    sizes = (prop or {}).get("sizes") or {}
     if any(sizes.values()):
         flow.append(Paragraph(
             f"Lot ~{_sz(sizes.get('lot_sqft'))} · House ~{_sz(sizes.get('house_sqft'))} "
@@ -109,4 +109,4 @@ def build_pdf(design: dict, prop: dict, cost: dict,
 
 
 def _sz(n):
-    return f"{n:,} sq ft" if n else "n/a"
+    return f"{int(n):,} sq ft" if isinstance(n, (int, float)) and not isinstance(n, bool) and n else "n/a"

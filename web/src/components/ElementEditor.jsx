@@ -8,7 +8,8 @@ export default function ElementEditor({ catalog, els, onChange }) {
     if (!key) return;
     const def = byKey[key];
     const options = Object.fromEntries(def.options.map((o) => [o.key, o.choices[0]]));
-    onChange([...els, { type: key, options, size: def.default_size }]);
+    const _id = `${key}-${Date.now()}-${Math.round(Math.random() * 1e4)}`;
+    onChange([...els, { _id, type: key, options, size: def.default_size }]);
   }
   function update(i, patch) {
     onChange(els.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
@@ -36,7 +37,7 @@ export default function ElementEditor({ catalog, els, onChange }) {
           const def = byKey[el.type];
           if (!def) return null;
           return (
-            <div className="el-card" key={i}>
+            <div className="el-card" key={el._id ?? i}>
               <div className="el-head">
                 <b>{def.name}</b>
                 <button type="button" className="rm" onClick={() => remove(i)}>✕</button>

@@ -51,9 +51,16 @@ def build_prompt(prop: dict, style_key: str, vision: str,
     if elements:
         described = []
         for e in elements:
-            spec = ", ".join(f"{k}: {v}" for k, v in (e.get("options") or {}).items())
-            described.append(e["type"] + (f" ({spec})" if spec else ""))
-        el_text = "Include these elements: " + "; ".join(described) + ". "
+            if not isinstance(e, dict):
+                continue
+            etype = e.get("type") or e.get("key")
+            if not etype:
+                continue
+            opts = e.get("options") if isinstance(e.get("options"), dict) else {}
+            spec = ", ".join(f"{k}: {v}" for k, v in opts.items())
+            described.append(str(etype) + (f" ({spec})" if spec else ""))
+        if described:
+            el_text = "Include these elements: " + "; ".join(described) + ". "
 
     vision = (vision or "").strip()
     vision_text = f'Client vision: "{vision}". ' if vision else ""

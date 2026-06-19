@@ -135,6 +135,7 @@ button:disabled { opacity: .55; cursor: default; }
   .styles { grid-template-columns: 1fr; }
   .ba { grid-template-columns: 1fr; }
   .addr { flex-direction: column; }
+  .el-opts { grid-template-columns: 1fr; }
 }
 
 /* print */

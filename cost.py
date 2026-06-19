@@ -7,6 +7,8 @@ premium-material multipliers, returned as a low–high range. Not a quote.
 """
 from __future__ import annotations
 
+import math
+
 from elements import get_element
 
 # Small multipliers so premium selections move the number believably.
@@ -18,10 +20,18 @@ _PREMIUM = {
 
 
 def _premium_factor(options: dict) -> float:
-    f = 1.0
-    for v in (options or {}).values():
-        f *= _PREMIUM.get(str(v), 1.0)
-    return f
+    # Use the single largest premium (capped), not the product — stacking
+    # multipliers across options produced absurd totals.
+    factors = [_PREMIUM[str(v)] for v in (options or {}).values() if str(v) in _PREMIUM]
+    return min(max(factors), 2.0) if factors else 1.0
+
+
+def _clean_size(size, default):
+    if isinstance(size, bool) or not isinstance(size, (int, float)):
+        return default
+    if not math.isfinite(size) or size <= 0:
+        return default
+    return min(size, 1_000_000)  # bound to prevent absurd / DoS values
 
 
 def _money(n) -> str:
@@ -32,13 +42,13 @@ def estimate(elements, sizes=None) -> dict:
     line_items = []
     subtotal = 0.0
     for e in elements or []:
+        if not isinstance(e, dict):
+            continue
         el = get_element(e.get("type") or e.get("key"))
         if not el:
             continue
-        opts = e.get("options") or {}
-        size = e.get("size")
-        if not isinstance(size, (int, float)) or size <= 0:
-            size = el.get("default_size", 1)
+        opts = e.get("options") if isinstance(e.get("options"), dict) else {}
+        size = _clean_size(e.get("size"), el.get("default_size", 1))
         factor = _premium_factor(opts)
 
         if el["kind"] == "area":
