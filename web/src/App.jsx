@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
+import Home from "./components/Home.jsx";
 import ElementEditor from "./components/ElementEditor.jsx";
 import CostPanel from "./components/CostPanel.jsx";
 import DesignsBar from "./components/DesignsBar.jsx";
@@ -13,6 +14,7 @@ const TIMES = [
 const sqft = (n) => (n == null ? "—" : n.toLocaleString() + " sq ft");
 
 export default function App() {
+  const [view, setView] = useState("home"); // "home" | "app"
   const [styles, setStyles] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [address, setAddress] = useState("");
@@ -117,13 +119,21 @@ export default function App() {
 
   const sizes = property?.sizes || {};
 
+  const goHome = () => { setView("home"); window.scrollTo(0, 0); };
+  const launch = () => { setView("app"); window.scrollTo(0, 0); };
+
   return (
     <div className="app">
       <header className="hdr">
-        <div className="brand"><span className="dot" /> Land-View</div>
-        <div className="tag">AI backyard designer — from your client's real property</div>
+        <button className="brand" onClick={goHome}><span className="dot" /> Land-View</button>
+        {view === "home"
+          ? <button className="nav-btn primary" onClick={launch}>Launch app</button>
+          : <button className="nav-btn" onClick={goHome}>← Home</button>}
       </header>
 
+      {view === "home" && <Home styles={styles} onStart={launch} />}
+
+      {view === "app" && (
       <main className="wrap">
         {/* STEP 1 — property */}
         <section className="card">
@@ -250,9 +260,10 @@ export default function App() {
           </section>
         )}
       </main>
+      )}
 
       <footer className="foot">
-        Phase 1 · satellite + scale + style + prompt pipeline. Renders are
+        Land-View · satellite + scale + style + AI prompt pipeline. Renders are
         property-conditioned once an image API is connected.
       </footer>
     </div>
