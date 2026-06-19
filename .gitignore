@@ -1,0 +1,28 @@
+# --- Secrets / credentials (never commit API keys) ---
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+secrets.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# --- Node / web ---
+node_modules/
+dist/
+build/
+
+# --- Logs ---
+*.log
+npm-debug.log*
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
