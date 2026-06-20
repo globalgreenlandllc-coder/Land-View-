@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Home from "./components/Home.jsx";
+import Logo from "./components/Logo.jsx";
 import ElementEditor from "./components/ElementEditor.jsx";
 import CostPanel from "./components/CostPanel.jsx";
 import DesignsBar from "./components/DesignsBar.jsx";
@@ -15,6 +16,7 @@ const sqft = (n) => (n == null ? "—" : n.toLocaleString() + " sq ft");
 
 export default function App() {
   const [view, setView] = useState("home"); // "home" | "app"
+  const [renderMode, setRenderMode] = useState(null); // {live, provider, mode}
   const [styles, setStyles] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [address, setAddress] = useState("");
@@ -34,6 +36,7 @@ export default function App() {
   useEffect(() => {
     api.getStyles().then((d) => setStyles(d.styles)).catch(() => setStylesError(true));
     api.getElements().then((d) => setCatalog(d.elements)).catch(() => {});
+    api.getHealth().then((d) => setRenderMode(d.render)).catch(() => {});
   }, []);
 
   // Recompute the cost estimate (debounced) whenever the elements change.
@@ -125,7 +128,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="hdr">
-        <button className="brand" onClick={goHome}><span className="dot" /> Land-View</button>
+        <button className="brand" onClick={goHome}><Logo size={26} /> Land-View</button>
         {view === "home"
           ? <button className="nav-btn primary" onClick={launch}>Launch app</button>
           : <button className="nav-btn" onClick={goHome}>← Home</button>}
@@ -205,6 +208,13 @@ export default function App() {
               ))}
             </div>
 
+            {renderMode && (
+              <div className={"render-status " + (renderMode.live ? "live" : "demo")}>
+                {renderMode.live
+                  ? `● Live renders on (${renderMode.provider})`
+                  : "● Demo renders — connect an image API for photorealistic output"}
+              </div>
+            )}
             <button type="button" className="primary block big" disabled={loading === "render"} onClick={generate}>
               {loading === "render" ? "Generating…" : "✨ Generate design"}
             </button>

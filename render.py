@@ -108,6 +108,14 @@ def _provider_configured(p: str) -> bool:
     }.get(p, False)
 
 
+def render_status() -> dict:
+    """Whether live renders are on (a provider + key are configured) for the UI."""
+    p = _provider()
+    live = bool(p and _provider_configured(p))
+    return {"live": live, "provider": p if live else None,
+            "mode": "live" if live else "demo"}
+
+
 def generate(prop: dict, style_key: str, vision: str,
              elements: list = None, time_of_day: str = "day") -> dict:
     """

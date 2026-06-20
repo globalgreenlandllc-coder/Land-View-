@@ -26,6 +26,21 @@ import urllib.request
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
+def _load_dotenv(path: str = ".env") -> None:
+    """Load KEY=VALUE lines from a local .env (so API keys never live in code/chat)."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_dotenv()  # must run before render reads provider/key env vars
+
 import cost as cost_mod
 import geo
 import pdf as pdf_mod
@@ -91,7 +106,7 @@ def safe_image_fetch(u: str):
 
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "render": render.render_status()})
 
 
 @app.get("/api/styles")

@@ -15,6 +15,7 @@ async function post(path, body) {
 }
 
 export const api = {
+  getHealth: () => get("/api/health"),
   getStyles: () => get("/api/styles"),
   getElements: () => get("/api/elements"),
   getProperty: (q) => get(`/api/property?q=${encodeURIComponent(q)}`),
