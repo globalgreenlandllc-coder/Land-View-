@@ -140,7 +140,7 @@ export default function Home({ styles, onStart }) {
 
 function HeroMockup() {
   return (
-    <svg viewBox="0 0 460 340" className="hero-mockup" role="img">
+    <svg viewBox="0 0 460 340" className="hero-mockup" role="img" aria-label="Preview of the Land-View backyard designer app">
       <defs>
         <linearGradient id="hm-lawn" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#9bd98f" /><stop offset="1" stopColor="#7cc66f" />

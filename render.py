@@ -135,9 +135,12 @@ def generate(prop: dict, style_key: str, vision: str,
                     "negative": neg, "before_url": before, "after_url": after,
                     "note": None}
         except Exception as exc:  # never break the UX on a provider error
-            return {"demo": True, "provider": provider, "prompt": prompt,
+            import sys
+            print(f"[render] provider '{provider}' failed: {exc}", file=sys.stderr)
+            return {"demo": True, "error": True, "provider": provider, "prompt": prompt,
                     "negative": neg, "before_url": before, "after_url": before,
-                    "note": f"Render provider error ({exc}); showing placeholder."}
+                    "note": "Live render failed — showing the satellite as a placeholder. "
+                            "Check the server logs and your provider configuration."}
 
     return {
         "demo": True, "provider": None, "prompt": prompt, "negative": neg,
@@ -166,14 +169,10 @@ def _call_provider(provider: str, prompt: str, neg: str, image_url: str,
 
 
 def _fetch_bytes(url: str) -> bytes:
-    # Defense in depth: the server already allow-lists property.satellite_url, but
-    # never let a provider path fetch file://, ftp://, etc.
-    import urllib.parse
-    import urllib.request
-    if urllib.parse.urlparse(url).scheme not in ("http", "https"):
-        raise ValueError("refusing to fetch non-http(s) URL")
-    with urllib.request.urlopen(url, timeout=30) as r:
-        return r.read(16 * 1024 * 1024)
+    # Use the SAME hardened fetch as the rest of the app: https + host allow-list
+    # + public-IP check + no redirect following + size cap. No weaker local path.
+    from netfetch import safe_image_fetch
+    return safe_image_fetch(url)[0]
 
 
 def _openai_edit(prompt: str, image_url: str) -> str:

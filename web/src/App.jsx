@@ -92,6 +92,7 @@ export default function App() {
   }
 
   async function generate() {
+    if (!property) { setError("Find a property first."); return; }
     setLoading("render"); setError("");
     try {
       setResult(await api.render({ property, style: styleKey, vision,
@@ -236,14 +237,15 @@ export default function App() {
         {result && (
           <section className="card">
             <h2><span className="num">3</span> Before / After</h2>
-            {result.demo && (
+            {result.demo && !result.error && (
               <div className="demo-banner">
                 Demo mode — no image API connected yet, so the “after” is a placeholder.
                 Connect an image model (set <code>RENDER_PROVIDER</code> + key) to produce the
                 real photorealistic render. The exact AI prompt is shown below.
               </div>
             )}
-            {result.note && !result.demo && <div className="demo-banner">{result.note}</div>}
+            {result.error && <div className="demo-banner error-banner">{result.note}</div>}
+            {result.note && !result.demo && !result.error && <div className="demo-banner">{result.note}</div>}
             <div className="ba">
               <figure>
                 <img src={result.before_url} alt="before" />

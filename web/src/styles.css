@@ -6,7 +6,7 @@
   --surface: #ffffff;
   --line: #e4e8e4;
   --text: #14201a;
-  --muted: #6b7770;
+  --muted: #4f5b53;
   --bad: #dc2626;
   --shadow: 0 1px 3px rgba(20,40,30,.06), 0 6px 24px rgba(20,40,30,.06);
   --radius: 16px;
@@ -185,6 +185,7 @@ button:disabled { opacity: .55; cursor: default; }
 .demo-banner { background: #fff7e6; border: 1px solid #f5d99b; color: #6b4e12; font-size: 13px;
   padding: 12px 14px; border-radius: 12px; margin-bottom: 14px; line-height: 1.5; }
 .demo-banner code { background: #fbeccb; padding: 1px 5px; border-radius: 4px; }
+.demo-banner.error-banner { background: #fdeaea; border-color: #f3b4b4; color: #8a1f1f; }
 .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .ba figure { margin: 0; }
 .ba img { width: 100%; border-radius: 12px; border: 1px solid var(--line); aspect-ratio: 1; object-fit: cover; display: block; }

@@ -16,15 +16,15 @@ Run:  python server.py            (http://localhost:8000)
 from __future__ import annotations
 
 import base64
-import ipaddress
 import os
 import socket
 import urllib.error
 import urllib.parse
-import urllib.request
 
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
+
+from netfetch import is_allowed_image_url, safe_image_fetch, MAX_IMG_BYTES, _opener as _no_redirect_opener
 
 def _load_dotenv(path: str = ".env") -> None:
     """Load KEY=VALUE lines from a local .env (so API keys never live in code/chat)."""
@@ -57,51 +57,7 @@ CORS(app, resources={r"/api/*": {"origins": [
     "http://localhost:5173", "http://127.0.0.1:5173",
 ]}})
 
-# Hosts any server-side image fetch is allowed to reach (prevents SSRF). Image
-# generation conditions on these, and the proxy only serves these.
-_IMG_HOSTS = {"services.arcgisonline.com", "server.arcgisonline.com"}
-_MAX_IMG_BYTES = 12 * 1024 * 1024
-
-
-def is_allowed_image_url(u: str) -> bool:
-    """https + host on the allow-list + the resolved IP is public (anti-SSRF)."""
-    try:
-        p = urllib.parse.urlparse(u)
-    except ValueError:
-        return False
-    if p.scheme != "https" or p.hostname not in _IMG_HOSTS:
-        return False
-    try:
-        for info in socket.getaddrinfo(p.hostname, 443, proto=socket.IPPROTO_TCP):
-            ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return False
-    except (socket.gaierror, ValueError):
-        return False
-    return True
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):  # block redirect-based allow-list bypass
-        return None
-
-
-_no_redirect_opener = urllib.request.build_opener(_NoRedirect)
-
-
-def safe_image_fetch(u: str):
-    """Fetch an allow-listed image with no redirects + a size cap. (bytes, ctype)."""
-    if not is_allowed_image_url(u):
-        raise ValueError("image host not allowed")
-    req = urllib.request.Request(u, headers={"User-Agent": "Land-View/1.0"})
-    with _no_redirect_opener.open(req, timeout=20) as r:
-        ctype = r.headers.get("Content-Type", "image/jpeg")
-        if not ctype.startswith("image/"):
-            raise ValueError("not an image")
-        data = r.read(_MAX_IMG_BYTES + 1)
-    if len(data) > _MAX_IMG_BYTES:
-        raise ValueError("image too large")
-    return data, ctype
+# SSRF-safe image fetching lives in netfetch.py and is shared with render.py.
 
 
 @app.get("/api/health")
