@@ -381,7 +381,7 @@ def _resolve_image_bytes(u: str):
             return None
     if is_allowed_image_url(u):
         try:
-            return safe_image_fetch(u)[0]
+            return _robust_image_fetch(u)[0]
         except Exception:
             return None
     # Anything else (arbitrary client-supplied URL) is NOT fetched — that would be
@@ -416,6 +416,31 @@ def pdf_endpoint():
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+def _robust_image_fetch(u: str):
+    """
+    Fetch an allow-listed image, retrying at smaller sizes for Esri's export
+    endpoint. Esri returns HTTP 500 ("Error: bytes") when the requested pixel
+    size over-zooms beyond the available native imagery resolution (common in
+    lower-res rural / high-latitude areas), so we step the size down until it
+    succeeds. Non-Esri URLs are fetched once as before.
+    """
+    try:
+        return safe_image_fetch(u)
+    except (urllib.error.HTTPError, urllib.error.URLError, socket.timeout, OSError) as first:
+        if "size=" not in u:
+            raise first
+        for size in (512, 400, 300, 256):
+            shrunk = re.sub(r"size=\d+(?:%2C|,)\d+",
+                            f"size={size}%2C{size}", u)
+            if shrunk == u:
+                continue
+            try:
+                return safe_image_fetch(shrunk)
+            except Exception:
+                continue
+        raise first
+
+
 @app.get("/api/img")
 def img_proxy():
     """Allow-listed same-origin image proxy for taint-free export."""
@@ -423,10 +448,10 @@ def img_proxy():
     if not is_allowed_image_url(u):
         return jsonify({"error": "host not allowed"}), 400
     try:
-        data, ctype = safe_image_fetch(u)
+        data, ctype = _robust_image_fetch(u)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    except (urllib.error.URLError, socket.timeout, OSError):
+    except (urllib.error.HTTPError, urllib.error.URLError, socket.timeout, OSError):
         return jsonify({"error": "upstream fetch failed"}), 502
     return Response(data, mimetype=ctype,
                     headers={"Cache-Control": "public, max-age=3600"})
