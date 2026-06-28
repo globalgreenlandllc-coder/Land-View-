@@ -166,10 +166,12 @@ function ConnRow({ c, onChange }) {
           </select>
         </label>
         <label className="lbl">{c.endpoint_label}
-          <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="optional" />
+          <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="optional"
+            autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} name={`endpoint-${c.service}`} />
         </label>
         <label className="lbl">{c.secret_label}
           <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)}
+            autoComplete="new-password" name={`secret-${c.service}`}
             placeholder={c.secret_masked ? `current: ${c.secret_masked} (leave blank to keep)` : "paste key…"} />
         </label>
       </div>

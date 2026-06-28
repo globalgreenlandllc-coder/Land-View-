@@ -45,7 +45,31 @@ def m_per_deg_lng(lat: float) -> float:
 # ---------------------------------------------------------------------------
 
 def geocode(q: str) -> dict:
-    """Address -> {lat, lng, display_name, osm_bbox:[s,n,w,e]|None} via Nominatim."""
+    """
+    Address -> {lat, lng, display_name, osm_bbox:[s,n,w,e]|None}.
+    Provider is chosen from Admin → API Connections (service "geocoding"):
+    nominatim (free, default) | google | mapbox. Falls back to Nominatim if a
+    keyed provider errors, so search always works.
+    """
+    import connections
+    cfg = connections.get_geocode_config()
+    provider = (cfg.get("provider") or "nominatim").lower()
+    key = cfg.get("api_key") or ""
+    try:
+        if provider == "google" and key:
+            return _geocode_google(q, key)
+        if provider == "mapbox" and key:
+            return _geocode_mapbox(q, key)
+    except ValueError:
+        raise  # genuine "not found" — don't mask it
+    except Exception as exc:  # provider/auth/network error -> fall back
+        import sys
+        print(f"[geocode] provider '{provider}' failed: {exc}; using Nominatim",
+              file=sys.stderr)
+    return _geocode_nominatim(q)
+
+
+def _geocode_nominatim(q: str) -> dict:
     url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
         {"q": q, "format": "json", "limit": 1, "addressdetails": 0})
     hits = _get_json(url)
@@ -59,11 +83,46 @@ def geocode(q: str) -> dict:
             osm_bbox = [float(x) for x in bb]  # [south, north, west, east]
         except (TypeError, ValueError):
             osm_bbox = None
-    return {
-        "lat": float(h["lat"]), "lng": float(h["lon"]),
-        "display_name": h.get("display_name", q),
-        "osm_bbox": osm_bbox,
-    }
+    return {"lat": float(h["lat"]), "lng": float(h["lon"]),
+            "display_name": h.get("display_name", q), "osm_bbox": osm_bbox}
+
+
+def _geocode_google(q: str, key: str) -> dict:
+    url = "https://maps.googleapis.com/maps/api/geocode/json?" + urllib.parse.urlencode(
+        {"address": q, "key": key})
+    data = _get_json(url)
+    status = data.get("status")
+    if status == "ZERO_RESULTS":
+        raise ValueError("address not found")
+    if status != "OK" or not data.get("results"):
+        raise RuntimeError(f"google geocode status {status}: {data.get('error_message', '')}")
+    r = data["results"][0]
+    loc = r["geometry"]["location"]
+    box = r["geometry"].get("bounds") or r["geometry"].get("viewport")
+    osm_bbox = None
+    if box:
+        ne, sw = box["northeast"], box["southwest"]
+        osm_bbox = [sw["lat"], ne["lat"], sw["lng"], ne["lng"]]  # [s, n, w, e]
+    return {"lat": float(loc["lat"]), "lng": float(loc["lng"]),
+            "display_name": r.get("formatted_address", q), "osm_bbox": osm_bbox}
+
+
+def _geocode_mapbox(q: str, token: str) -> dict:
+    url = (f"https://api.mapbox.com/geocoding/v5/mapbox.places/"
+           f"{urllib.parse.quote(q)}.json?" + urllib.parse.urlencode(
+               {"access_token": token, "limit": 1}))
+    data = _get_json(url)
+    feats = data.get("features") or []
+    if not feats:
+        raise ValueError("address not found")
+    f = feats[0]
+    lng, lat = f["center"]
+    osm_bbox = None
+    if f.get("bbox") and len(f["bbox"]) == 4:
+        w, s, e, n = f["bbox"]
+        osm_bbox = [s, n, w, e]
+    return {"lat": float(lat), "lng": float(lng),
+            "display_name": f.get("place_name", q), "osm_bbox": osm_bbox}
 
 
 # ---------------------------------------------------------------------------

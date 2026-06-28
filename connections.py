@@ -31,10 +31,10 @@ SERVICES = {
     },
     "geocoding": {
         "label": "Geocoding (address → coordinates)",
-        "providers": ["nominatim", "mapbox", "google"],
+        "providers": ["nominatim", "google", "mapbox"],
         "secret_label": "API key (not needed for Nominatim)",
         "endpoint_label": "Endpoint (optional)",
-        "wired": False,
+        "wired": True,
     },
     "parcel": {
         "label": "Parcel / property data",
@@ -79,6 +79,16 @@ def get_render_config() -> dict:
             or os.environ.get("FAL_MODEL") or "",
         }
     return {"provider": None, "api_key": "", "model": ""}
+
+
+def get_geocode_config() -> dict:
+    """Active geocoder config: {provider, api_key, endpoint}. DB then env."""
+    row = store.get_connection("geocoding")
+    if row is not None and row["provider"]:
+        key = crypto.decrypt(row["secret_enc"]) if row["secret_enc"] else ""
+        return {"provider": row["provider"], "api_key": key, "endpoint": row["endpoint"] or ""}
+    provider = (os.environ.get("GEOCODER") or "").lower().strip() or "nominatim"
+    return {"provider": provider, "api_key": os.environ.get("GEOCODER_KEY", ""), "endpoint": ""}
 
 
 def get_parcel_config() -> dict:

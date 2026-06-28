@@ -178,7 +178,10 @@ def _call_provider(provider: str, prompt: str, neg: str, image_url: str,
     (Executed only when the provider + key are configured.)
     """
     if provider == "openai":
-        return _openai_edit(prompt, image_url, api_key)
+        # Guard against a misconfigured model field (e.g. autofill putting an email
+        # there): only honor a value that looks like an OpenAI image model id.
+        oa_model = model if (model or "").startswith("gpt-image") else "gpt-image-2"
+        return _openai_edit(prompt, image_url, api_key, oa_model)
     if provider == "replicate":
         return _replicate_img2img(prompt, neg, image_url, api_key, model)
     if provider == "fal":
@@ -193,15 +196,15 @@ def _fetch_bytes(url: str) -> bytes:
     return safe_image_fetch(url)[0]
 
 
-def _openai_edit(prompt: str, image_url: str, api_key: str) -> str:
-    """OpenAI images edit (gpt-image-1) conditioned on the satellite crop."""
+def _openai_edit(prompt: str, image_url: str, api_key: str, model: str = "gpt-image-2") -> str:
+    """OpenAI images edit (gpt-image-2) conditioned on the satellite crop."""
     import base64
     import json
     import urllib.request
     img = _fetch_bytes(image_url)
     boundary = "----landview"
     parts = [
-        f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-image-1\r\n',
+        f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n{model}\r\n',
         f'--{boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n{prompt}\r\n',
         f'--{boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n1024x1024\r\n',
     ]
@@ -213,8 +216,12 @@ def _openai_edit(prompt: str, image_url: str, api_key: str) -> str:
         "https://api.openai.com/v1/images/edits", data=body,
         headers={"Authorization": f"Bearer {api_key}",
                  "Content-Type": f"multipart/form-data; boundary={boundary}"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        data = json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=180) as r:
+            data = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:500]
+        raise RuntimeError(f"OpenAI {e.code}: {detail}") from None
     return "data:image/png;base64," + data["data"][0]["b64_json"]
 
 
