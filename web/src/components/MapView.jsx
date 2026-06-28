@@ -100,7 +100,9 @@ export default function MapView({ parcel, mapConfig }) {
     if (ring.length) {
       const b = ring.reduce((bb, c) => bb.extend(c),
         new maplibregl.LngLatBounds(ring[0], ring[0]));
-      map.fitBounds(b, { padding: 60, duration: 600, maxZoom: 19 });
+      // Cap at z18 — Esri World Imagery serves real tiles to ~18 almost
+      // everywhere; z19+ returns "data not available" placeholders in many areas.
+      map.fitBounds(b, { padding: 60, duration: 600, maxZoom: 18 });
     }
   }
 
