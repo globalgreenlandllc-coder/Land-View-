@@ -137,7 +137,7 @@ def _to_mercator(lat: float, lng: float):
 
 
 def esri_satellite_url(lat: float, lng: float, span_m: float = 120.0,
-                       size_px: int = 700) -> str:
+                       size_px: int = 512) -> str:
     """
     Esri World Imagery export URL, requested in Web Mercator (EPSG:3857) with a
     square-in-metres bbox into a square pixel frame, so the returned imagery is
