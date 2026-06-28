@@ -123,6 +123,53 @@ def _synth_attrs(lat: float, lng: float, lot_sqft: float):
 
 
 # ---------------------------------------------------------------------------
+# Site intelligence: structure zones, setbacks, designable area
+# ---------------------------------------------------------------------------
+
+def _ring_area_sqft(ring) -> float:
+    if not ring or len(ring) < 3:
+        return 0.0
+    return geo._polygon_area_sqft([(lat, lng) for lng, lat in ring])  # (lat,lng)
+
+
+def _setback_ring(ring, setback_ft: float = 15.0):
+    """Inset the boundary toward its centroid by ~setback_ft (a no-build guide)."""
+    if not ring or len(ring) < 4:
+        return None
+    pts = ring[:-1] if ring[0] == ring[-1] else ring
+    cx = sum(p[0] for p in pts) / len(pts)
+    cy = sum(p[1] for p in pts) / len(pts)
+    mlat, mlng = geo.M_PER_DEG_LAT, geo.m_per_deg_lng(cy)
+    setback_m = setback_ft / 3.28084
+    out = []
+    for lng, lat in pts:
+        dx, dy = (lng - cx) * mlng, (lat - cy) * mlat
+        d = math.hypot(dx, dy)
+        f = (d - setback_m) / d if d > setback_m else 0.0
+        out.append([cx + (lng - cx) * f, cy + (lat - cy) * f])
+    out.append(out[0])  # close the ring
+    return out
+
+
+def _site_intelligence(rec: dict) -> dict:
+    """Attach structures (no-design zones), setback guide, and designable area."""
+    ring = rec.get("boundary")
+    structures = []
+    fp = geo.house_footprint(rec["lat"], rec["lng"])
+    if fp and fp.get("ring"):
+        structures.append(fp["ring"])
+    setback = _setback_ring(ring) if ring else None
+    designable = None
+    if setback:
+        designable = _ring_area_sqft(setback) - sum(_ring_area_sqft(s) for s in structures)
+        designable = max(0, round(designable))
+    rec["structures"] = structures
+    rec["setback"] = setback
+    rec["designable_sqft"] = designable
+    return rec
+
+
+# ---------------------------------------------------------------------------
 # Public entry
 # ---------------------------------------------------------------------------
 
@@ -171,7 +218,7 @@ def _demo_lookup(kind: str, payload, query: str) -> dict:
         apn = query
     intake["sizes"]["lot_sqft"] = intake["sizes"].get("lot_sqft") or lot_sqft
 
-    return {
+    return _site_intelligence({
         "query": query, "kind": kind,
         "address": intake["address"], "lat": lat, "lng": lng,
         "apn": apn, "owner": owner, "zoning": zoning,
@@ -184,7 +231,7 @@ def _demo_lookup(kind: str, payload, query: str) -> dict:
         "note": "Demo parcel data — boundary and attributes are estimated, not a "
                 "survey. Connect Regrid or ATTOM in Admin → API Connections for "
                 "authoritative parcels.",
-    }
+    })
 
 
 def _fallback_lot(lat: float, lng: float) -> int:
@@ -264,7 +311,7 @@ def _attom(cfg: dict, kind: str, payload, query: str) -> dict:
 def _assemble_real(provider, query, kind, lat, lng, ring, attrs) -> dict:
     lot = attrs.get("lot_size_sqft") or _fallback_lot(lat, lng)
     _, fr, dp = _rect_boundary(lat, lng, lot)
-    return {
+    return _site_intelligence({
         "query": query, "kind": kind,
         "address": query, "lat": lat, "lng": lng,
         "apn": attrs.get("apn") or "—",
@@ -279,7 +326,7 @@ def _assemble_real(provider, query, kind, lat, lng, ring, attrs) -> dict:
                   "house_sqft": geo.house_footprint_sqft(lat, lng),
                   "backyard_sqft": None, "view_width_ft": round(120 * 3.28084)},
         "provider": provider, "demo": False, "note": None,
-    }
+    })
 
 
 def _first_ring(geom):
