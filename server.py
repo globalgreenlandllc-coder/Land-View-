@@ -21,7 +21,9 @@ import socket
 import urllib.error
 import urllib.parse
 
-from flask import Flask, jsonify, request, Response
+import re
+
+from flask import Flask, jsonify, request, Response, g
 from flask_cors import CORS
 
 from netfetch import is_allowed_image_url, safe_image_fetch, MAX_IMG_BYTES, _opener as _no_redirect_opener
@@ -41,8 +43,11 @@ def _load_dotenv(path: str = ".env") -> None:
 
 _load_dotenv()  # must run before render reads provider/key env vars
 
+import auth
+import connections as conns
 import cost as cost_mod
 import geo
+import parcel as parcel_mod
 import pdf as pdf_mod
 import render
 import store as designs
@@ -65,6 +70,159 @@ def health():
     return jsonify({"ok": True, "render": render.render_status()})
 
 
+# ---------------------------------------------------------------------------
+# Auth: register / login / refresh / me
+# ---------------------------------------------------------------------------
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@app.post("/api/auth/register")
+def auth_register():
+    body = request.get_json(force=True, silent=True) or {}
+    email = str(body.get("email", "")).strip().lower()
+    password = str(body.get("password", ""))
+    if not _EMAIL_RE.match(email):
+        return jsonify({"error": "a valid email is required"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "password must be at least 8 characters"}), 400
+    if designs.get_user_by_email(email) is not None:
+        return jsonify({"error": "an account with that email already exists"}), 409
+    # The very first account to register becomes the admin.
+    role = "admin" if designs.count_users() == 0 else "user"
+    user = designs.create_user(email, auth.hash_password(password), role)
+    designs.add_audit(user["id"], user["email"], "register", detail=f"role={role}")
+    tokens = auth.issue_tokens(user["id"], user["role"])
+    return jsonify({"user": user, **tokens}), 201
+
+
+@app.post("/api/auth/login")
+def auth_login():
+    body = request.get_json(force=True, silent=True) or {}
+    email = str(body.get("email", "")).strip().lower()
+    password = str(body.get("password", ""))
+    row = designs.get_user_by_email(email)
+    if row is None or not auth.verify_password(password, row["password_hash"]):
+        return jsonify({"error": "invalid email or password"}), 401
+    if row["status"] != "active":
+        return jsonify({"error": "this account is suspended"}), 403
+    tokens = auth.issue_tokens(row["id"], row["role"])
+    user = {"id": row["id"], "email": row["email"], "role": row["role"]}
+    designs.add_audit(row["id"], row["email"], "login")
+    return jsonify({"user": user, **tokens})
+
+
+@app.post("/api/auth/refresh")
+def auth_refresh():
+    body = request.get_json(force=True, silent=True) or {}
+    payload = auth.verify_token(str(body.get("refresh_token", "")), kind="refresh")
+    if not payload:
+        return jsonify({"error": "invalid or expired refresh token"}), 401
+    row = designs.get_user_by_id(payload["sub"])
+    if row is None or row["status"] != "active":
+        return jsonify({"error": "account unavailable"}), 401
+    return jsonify(auth.issue_tokens(row["id"], row["role"]))
+
+
+@app.get("/api/auth/me")
+@auth.require_auth
+def auth_me():
+    return jsonify({"user": g.user})
+
+
+# ---------------------------------------------------------------------------
+# Admin (role-gated): users, API connections, analytics, audit
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/users")
+@auth.require_admin
+def admin_users():
+    return jsonify({"users": designs.list_users()})
+
+
+@app.patch("/api/admin/users/<uid>")
+@auth.require_admin
+def admin_user_update(uid):
+    body = request.get_json(force=True, silent=True) or {}
+    if uid == g.user["id"]:
+        return jsonify({"error": "you can't change your own account here"}), 400
+    target = designs.get_user_by_id(uid)
+    if target is None:
+        return jsonify({"error": "user not found"}), 404
+    if "status" in body:
+        status = body["status"]
+        if status not in ("active", "suspended"):
+            return jsonify({"error": "status must be 'active' or 'suspended'"}), 400
+        designs.set_user_status(uid, status)
+        designs.add_audit(g.user["id"], g.user["email"], "user.status",
+                          target=target["email"], detail=status)
+    if "role" in body:
+        role = body["role"]
+        if role not in ("user", "admin"):
+            return jsonify({"error": "role must be 'user' or 'admin'"}), 400
+        designs.set_user_role(uid, role)
+        designs.add_audit(g.user["id"], g.user["email"], "user.role",
+                          target=target["email"], detail=role)
+    return jsonify({"user": designs._user_public(designs.get_user_by_id(uid))})
+
+
+@app.delete("/api/admin/users/<uid>")
+@auth.require_admin
+def admin_user_delete(uid):
+    if uid == g.user["id"]:
+        return jsonify({"error": "you can't delete your own account"}), 400
+    target = designs.get_user_by_id(uid)
+    if target is None:
+        return jsonify({"error": "user not found"}), 404
+    designs.delete_user(uid)
+    designs.add_audit(g.user["id"], g.user["email"], "user.delete", target=target["email"])
+    return jsonify({"ok": True})
+
+
+@app.get("/api/admin/connections")
+@auth.require_admin
+def admin_connections():
+    return jsonify({"connections": conns.list_public()})
+
+
+@app.put("/api/admin/connections/<service>")
+@auth.require_admin
+def admin_connection_set(service):
+    body = request.get_json(force=True, silent=True) or {}
+    provider = str(body.get("provider", "")).strip()
+    endpoint = str(body.get("endpoint", "")).strip()
+    secret = body.get("secret")
+    secret = str(secret) if secret else None  # empty -> keep existing
+    try:
+        conns.set_connection(service, provider, endpoint, secret,
+                             g.user["id"], g.user["email"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    designs.add_audit(g.user["id"], g.user["email"], "connection.set",
+                      target=service, detail=f"provider={provider}")
+    return jsonify({"connections": conns.list_public()})
+
+
+@app.delete("/api/admin/connections/<service>")
+@auth.require_admin
+def admin_connection_delete(service):
+    conns.delete_connection(service)
+    designs.add_audit(g.user["id"], g.user["email"], "connection.delete", target=service)
+    return jsonify({"connections": conns.list_public()})
+
+
+@app.get("/api/admin/analytics")
+@auth.require_admin
+def admin_analytics():
+    return jsonify(designs.analytics())
+
+
+@app.get("/api/admin/audit")
+@auth.require_admin
+def admin_audit():
+    return jsonify({"audit": designs.list_audit(200)})
+
+
 @app.get("/api/styles")
 def styles():
     return jsonify({"styles": [
@@ -73,19 +231,52 @@ def styles():
 
 
 @app.get("/api/property")
+@auth.require_auth
 def property_endpoint():
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify({"error": "address (q) required"}), 400
     try:
-        return jsonify(geo.property_intake(q))
+        result = geo.property_intake(q)
+        designs.add_audit(g.user["id"], g.user["email"], "search", target=q)
+        return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
         return jsonify({"error": f"property lookup failed: {e}"}), 502
 
 
+@app.get("/api/parcel")
+@auth.require_auth
+def parcel_endpoint():
+    q = (request.args.get("q") or "").strip()
+    kind = (request.args.get("kind") or "auto").strip()
+    if not q:
+        return jsonify({"error": "search query (q) required"}), 400
+    try:
+        rec = parcel_mod.lookup(q, kind)
+        designs.add_audit(g.user["id"], g.user["email"], "search",
+                          target=q, detail=f"kind={rec.get('kind')}")
+        return jsonify(rec)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        app.logger.exception("parcel lookup failed")
+        return jsonify({"error": f"parcel lookup failed: {e}"}), 502
+
+
+@app.get("/api/map-config")
+@auth.require_auth
+def map_config_endpoint():
+    """Client map config. The Mapbox token is a public (pk.) client token by design."""
+    cfg = conns.get_map_config()
+    return jsonify({"provider": cfg["provider"],
+                    "token": cfg["token"] if cfg["provider"] == "mapbox" else "",
+                    "style": cfg["style"]})
+
+
 @app.post("/api/render")
+@auth.require_auth
 def render_endpoint():
     try:
         body = request.get_json(force=True, silent=True) or {}
@@ -109,8 +300,12 @@ def render_endpoint():
             vision=str(body.get("vision", "") or ""),
             elements=elements,
             time_of_day=str(body.get("time_of_day", "day")),
+            view=str(body.get("view", render.DEFAULT_VIEW)),
         )
         result["cost"] = cost_mod.estimate(elements or [], prop.get("sizes"))
+        designs.add_audit(g.user["id"], g.user["email"], "render",
+                          target=str(body.get("style", "modern")),
+                          detail=("live" if not result.get("demo") else "demo"))
     except Exception:
         app.logger.exception("render failed")
         return jsonify({"error": "render failed"}), 500
@@ -144,25 +339,32 @@ def cost_endpoint():
 # ---------------------------------------------------------------------------
 
 @app.get("/api/designs")
+@auth.require_auth
 def designs_index():
-    return jsonify({"designs": designs.list_designs()})
+    return jsonify({"designs": designs.list_designs(g.user["id"])})
 
 
 @app.post("/api/designs")
+@auth.require_auth
 def designs_save():
     body = request.get_json(force=True, silent=True) or {}
-    return jsonify(designs.save_design(body))
+    try:
+        return jsonify(designs.save_design(body, g.user["id"]))
+    except PermissionError:
+        return jsonify({"error": "forbidden"}), 403
 
 
 @app.get("/api/designs/<did>")
+@auth.require_auth
 def designs_get(did):
-    d = designs.get_design(did)
+    d = designs.get_design(did, g.user["id"])
     return (jsonify(d), 200) if d else (jsonify({"error": "not found"}), 404)
 
 
 @app.delete("/api/designs/<did>")
+@auth.require_auth
 def designs_delete(did):
-    return jsonify({"ok": designs.delete_design(did)})
+    return jsonify({"ok": designs.delete_design(did, g.user["id"])})
 
 
 # ---------------------------------------------------------------------------
