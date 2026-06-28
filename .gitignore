@@ -6,6 +6,9 @@
 credentials.json
 secrets.json
 
+# --- Local data store: SQLite DB, JWT + encryption secrets (NEVER commit) ---
+_store/
+
 # --- Python ---
 __pycache__/
 *.py[cod]
@@ -26,3 +29,6 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# --- local dev config ---
+.claude/

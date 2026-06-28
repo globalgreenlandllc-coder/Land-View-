@@ -25,9 +25,36 @@ from styles import get_style
 # Prompt engineering
 # ---------------------------------------------------------------------------
 
+# Camera viewpoints the render can be framed from. "hero" is the default: a
+# three-quarter aerial-oblique that shows the HOUSE and the full BACKYARD together
+# in one natural-daylight frame (what most clients want to see first).
+VIEWS = {
+    "hero": (
+        "Three-quarter aerial-oblique photograph, as if from a drone hovering at "
+        "roughly a 30-degree downward angle behind the property: frame the FULL "
+        "house (facade and roofline clearly visible) TOGETHER WITH the entire "
+        "backyard in a single shot, with natural depth and perspective. The house "
+        "and the designed yard must both be clearly visible in the same image."
+    ),
+    "aerial": (
+        "Render from the SAME overhead aerial viewpoint as the reference image "
+        "(top-down bird's-eye), so the result aligns 1:1 with the real property."
+    ),
+    "eye_level": (
+        "Ground-level, eye-level photograph taken from within the yard looking "
+        "back toward the house, natural human standing perspective (~5.5 ft camera "
+        "height), with the house in the background and the designed landscaping in "
+        "the foreground and mid-ground."
+    ),
+}
+DEFAULT_VIEW = "hero"
+
+
 def build_prompt(prop: dict, style_key: str, vision: str,
-                 elements: list = None, time_of_day: str = "day") -> str:
+                 elements: list = None, time_of_day: str = "day",
+                 view: str = DEFAULT_VIEW) -> str:
     style = get_style(style_key)
+    viewpoint = VIEWS.get(view, VIEWS[DEFAULT_VIEW])
     sizes = prop.get("sizes", {})
     lot = sizes.get("lot_sqft")
     backyard = sizes.get("backyard_sqft")
@@ -77,10 +104,9 @@ def build_prompt(prop: dict, style_key: str, vision: str,
         f"Overall style: {style['prompt_fragment']}. "
         f"Use materials: {style['materials']}; planting: {style['plants']}. "
         f"Lighting: {lighting}. "
-        "Render from the SAME overhead aerial viewpoint as the reference image "
-        "(top-down bird's-eye), so the result aligns 1:1 with the real property. "
+        f"{viewpoint} "
         "Photorealistic, true-to-life materials (real water, grass, wood, stone), "
-        "accurate sun shadows, high detail, drone/aerial photography look. "
+        "accurate sun shadows, high detail, professional real-estate photography look. "
         "Not a diagram, not clip art, not a flat plan."
     )
 
@@ -95,56 +121,47 @@ def negative_prompt() -> str:
 # Providers (pluggable)
 # ---------------------------------------------------------------------------
 
-def _provider() -> str | None:
-    p = (os.environ.get("RENDER_PROVIDER") or "").lower().strip()
-    return p or None
-
-
-def _provider_configured(p: str) -> bool:
-    return {
-        "openai": bool(os.environ.get("OPENAI_API_KEY")),
-        "replicate": bool(os.environ.get("REPLICATE_API_TOKEN")),
-        "fal": bool(os.environ.get("FAL_KEY")),
-    }.get(p, False)
-
-
 def render_status() -> dict:
     """Whether live renders are on (a provider + key are configured) for the UI."""
-    p = _provider()
-    live = bool(p and _provider_configured(p))
-    return {"live": live, "provider": p if live else None,
+    import connections
+    cfg = connections.get_render_config()
+    live = bool(cfg["provider"] and cfg["api_key"])
+    return {"live": live, "provider": cfg["provider"] if live else None,
             "mode": "live" if live else "demo"}
 
 
 def generate(prop: dict, style_key: str, vision: str,
-             elements: list = None, time_of_day: str = "day") -> dict:
+             elements: list = None, time_of_day: str = "day",
+             view: str = DEFAULT_VIEW) -> dict:
     """
     Run the render. Returns:
-      {demo, provider, prompt, negative, before_url, after_url, note}
+      {demo, provider, prompt, negative, before_url, after_url, view, note}
     In demo mode after_url == the real satellite image (placeholder) and demo=True.
     """
-    prompt = build_prompt(prop, style_key, vision, elements, time_of_day)
+    import connections
+    prompt = build_prompt(prop, style_key, vision, elements, time_of_day, view)
     neg = negative_prompt()
     before = prop.get("satellite_url")
-    provider = _provider()
+    cfg = connections.get_render_config()
+    provider, api_key, model = cfg["provider"], cfg["api_key"], cfg["model"]
 
-    if provider and _provider_configured(provider):
+    if provider and api_key:
         try:
-            after = _call_provider(provider, prompt, neg, before, time_of_day)
+            after = _call_provider(provider, prompt, neg, before, time_of_day, api_key, model)
             return {"demo": False, "provider": provider, "prompt": prompt,
                     "negative": neg, "before_url": before, "after_url": after,
-                    "note": None}
+                    "view": view, "note": None}
         except Exception as exc:  # never break the UX on a provider error
             import sys
             print(f"[render] provider '{provider}' failed: {exc}", file=sys.stderr)
             return {"demo": True, "error": True, "provider": provider, "prompt": prompt,
                     "negative": neg, "before_url": before, "after_url": before,
-                    "note": "Live render failed — showing the satellite as a placeholder. "
+                    "view": view, "note": "Live render failed — showing the satellite as a placeholder. "
                             "Check the server logs and your provider configuration."}
 
     return {
         "demo": True, "provider": None, "prompt": prompt, "negative": neg,
-        "before_url": before, "after_url": before,
+        "before_url": before, "after_url": before, "view": view,
         "note": ("DEMO MODE — no image-generation API configured. This is the exact "
                  "prompt that would be sent to the image model (conditioned on the "
                  "satellite image). Set RENDER_PROVIDER + an API key to produce the "
@@ -153,18 +170,19 @@ def generate(prop: dict, style_key: str, vision: str,
 
 
 def _call_provider(provider: str, prompt: str, neg: str, image_url: str,
-                   time_of_day: str) -> str:
+                   time_of_day: str, api_key: str, model: str = "") -> str:
     """
     Drop-in real-render calls. Each conditions on the satellite image so the
     output matches the actual property. Returns the rendered image URL/data URL.
+    The api_key/model come from connections.py (admin panel or .env).
     (Executed only when the provider + key are configured.)
     """
     if provider == "openai":
-        return _openai_edit(prompt, image_url)
+        return _openai_edit(prompt, image_url, api_key)
     if provider == "replicate":
-        return _replicate_img2img(prompt, neg, image_url)
+        return _replicate_img2img(prompt, neg, image_url, api_key, model)
     if provider == "fal":
-        return _fal_img2img(prompt, neg, image_url)
+        return _fal_img2img(prompt, neg, image_url, api_key, model)
     raise ValueError(f"unknown provider {provider}")
 
 
@@ -175,7 +193,7 @@ def _fetch_bytes(url: str) -> bytes:
     return safe_image_fetch(url)[0]
 
 
-def _openai_edit(prompt: str, image_url: str) -> str:
+def _openai_edit(prompt: str, image_url: str, api_key: str) -> str:
     """OpenAI images edit (gpt-image-1) conditioned on the satellite crop."""
     import base64
     import json
@@ -193,20 +211,21 @@ def _openai_edit(prompt: str, image_url: str) -> str:
     body += img + f"\r\n--{boundary}--\r\n".encode()
     req = urllib.request.Request(
         "https://api.openai.com/v1/images/edits", data=body,
-        headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+        headers={"Authorization": f"Bearer {api_key}",
                  "Content-Type": f"multipart/form-data; boundary={boundary}"})
     with urllib.request.urlopen(req, timeout=120) as r:
         data = json.loads(r.read().decode())
     return "data:image/png;base64," + data["data"][0]["b64_json"]
 
 
-def _replicate_img2img(prompt: str, neg: str, image_url: str) -> str:
+def _replicate_img2img(prompt: str, neg: str, image_url: str,
+                       api_key: str, model: str = "") -> str:
     """Replicate (e.g. SDXL/Flux img2img or ControlNet) conditioned on the image."""
     import json
     import time
     import urllib.request
-    token = os.environ["REPLICATE_API_TOKEN"]
-    version = os.environ.get("REPLICATE_MODEL_VERSION", "")  # set to your chosen model
+    token = api_key
+    version = model or os.environ.get("REPLICATE_MODEL_VERSION", "")  # chosen model version
     payload = json.dumps({"version": version, "input": {
         "prompt": prompt, "negative_prompt": neg, "image": image_url,
         "prompt_strength": 0.65}}).encode()
@@ -229,16 +248,17 @@ def _replicate_img2img(prompt: str, neg: str, image_url: str) -> str:
     raise TimeoutError("replicate timed out")
 
 
-def _fal_img2img(prompt: str, neg: str, image_url: str) -> str:
+def _fal_img2img(prompt: str, neg: str, image_url: str,
+                 api_key: str, model: str = "") -> str:
     """fal.ai img2img/ControlNet conditioned on the satellite image."""
     import json
     import urllib.request
-    model = os.environ.get("FAL_MODEL", "fal-ai/flux/dev/image-to-image")
+    model = model or os.environ.get("FAL_MODEL", "fal-ai/flux/dev/image-to-image")
     payload = json.dumps({"prompt": prompt, "image_url": image_url,
                           "strength": 0.65}).encode()
     req = urllib.request.Request(
         f"https://fal.run/{model}", data=payload,
-        headers={"Authorization": f"Key {os.environ['FAL_KEY']}",
+        headers={"Authorization": f"Key {api_key}",
                  "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as r:
         data = json.loads(r.read().decode())
