@@ -3,24 +3,24 @@ import { useRef, useState } from "react";
 // Palette of placeable elements. `type` flows into the render prompt + cost.
 // Types match the backend element catalog so placed items get materials + cost.
 const PALETTE = [
-  { type: "trees", label: "Tree", emoji: "🌳" },
-  { type: "beds", label: "Plant bed", emoji: "🌷" },
-  { type: "lawn", label: "Lawn", emoji: "🟩" },
-  { type: "patio", label: "Patio", emoji: "🟫" },
-  { type: "deck", label: "Deck", emoji: "🪵" },
-  { type: "pool", label: "Pool", emoji: "🏊" },
-  { type: "hot_tub", label: "Hot tub", emoji: "♨️" },
-  { type: "pathway", label: "Path", emoji: "🥾" },
-  { type: "fence", label: "Fence", emoji: "🧱" },
-  { type: "wall", label: "Wall", emoji: "🪨" },
-  { type: "fire", label: "Fire pit", emoji: "🔥" },
-  { type: "pergola", label: "Pergola", emoji: "⛱️" },
-  { type: "gazebo", label: "Gazebo", emoji: "⛩️" },
-  { type: "kitchen", label: "Kitchen", emoji: "🍴" },
-  { type: "seating", label: "Seating", emoji: "🪑" },
-  { type: "lighting", label: "Lighting", emoji: "💡" },
+  { type: "trees", label: "Tree" },
+  { type: "beds", label: "Plant bed" },
+  { type: "lawn", label: "Lawn" },
+  { type: "patio", label: "Patio" },
+  { type: "deck", label: "Deck" },
+  { type: "pool", label: "Pool" },
+  { type: "hot_tub", label: "Hot tub" },
+  { type: "pathway", label: "Path" },
+  { type: "fence", label: "Fence" },
+  { type: "wall", label: "Wall" },
+  { type: "fire", label: "Fire pit" },
+  { type: "pergola", label: "Pergola" },
+  { type: "gazebo", label: "Gazebo" },
+  { type: "kitchen", label: "Kitchen" },
+  { type: "seating", label: "Seating" },
+  { type: "lighting", label: "Lighting" },
 ];
-const EMOJI = Object.fromEntries(PALETTE.map((p) => [p.type, p.emoji]));
+const LABEL = Object.fromEntries(PALETTE.map((p) => [p.type, p.label]));
 
 const MERC_R = 6378137, SPAN_M = 120, FT = 3.28084;
 const toMerc = (lng, lat) => [
@@ -177,7 +177,7 @@ export default function DesignCanvas({ parcel, els, onChange }) {
         {PALETTE.map((p) => (
           <button key={p.type} type="button" className="pal-item"
             onClick={() => addEl(p)} title={`Add ${p.label}`}>
-            <span className="pal-emoji">{p.emoji}</span>{p.label}
+            {p.label}
           </button>
         ))}
       </div>
@@ -201,13 +201,14 @@ export default function DesignCanvas({ parcel, els, onChange }) {
         {placed.map((el) => (
           <div key={el.id} className="placed" onPointerDown={(e) => startDrag(e, el.id)}
             style={{ left: `${el.x * 100}%`, top: `${el.y * 100}%` }}
-            title={el.label || el.type}>
-            <span className="placed-emoji">{EMOJI[el.type] || "📍"}</span>
+            title={el.label || LABEL[el.type] || el.type}>
+            <span className="placed-pin" />
+            <span className="placed-label">{el.label || LABEL[el.type] || el.type}</span>
             <button type="button" className="placed-x" onClick={(e) => { e.stopPropagation(); removeEl(el.id); }}>×</button>
           </div>
         ))}
 
-        {warning && <div className="canvas-warning">⚠ {warning}</div>}
+        {warning && <div className="canvas-warning">{warning}</div>}
         <div className="scale-bar"><span /> ≈ {Math.round(SPAN_M * FT)} ft across</div>
       </div>
 
@@ -223,7 +224,7 @@ export default function DesignCanvas({ parcel, els, onChange }) {
       <div className="canvas-actions">
         <button type="button" className={measure ? "on" : ""}
           onClick={() => { setMeasure((m) => !m); if (measure) setMpts([]); }}>
-          📏 {measure ? "Measuring… (click)" : "Measure"}
+          {measure ? "Measuring… (click)" : "Measure"}
         </button>
         {measure && mpts.length > 0 && (
           <>

@@ -138,7 +138,7 @@ export default function MapView({ parcel, mapConfig }) {
       <div className="map-tools">
         <button type="button" className={measure ? "on" : ""}
           onClick={() => { setMeasure((m) => !m); if (measure) setPts([]); }}>
-          📏 {measure ? "Measuring… (click map)" : "Measure"}
+          {measure ? "Measuring… (click map)" : "Measure"}
         </button>
         {measure && pts.length > 0 && (
           <>

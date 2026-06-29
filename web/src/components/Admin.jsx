@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 
 const TABS = [
-  ["analytics", "📊 Analytics"],
-  ["users", "👥 Users"],
-  ["connections", "🔌 API Connections"],
-  ["audit", "📜 Audit log"],
+  ["analytics", "Analytics"],
+  ["users", "Users"],
+  ["connections", "API connections"],
+  ["audit", "Audit log"],
 ];
 
 export default function Admin({ me }) {
@@ -120,7 +120,7 @@ function Connections() {
   if (error) return <section className="card"><div className="err">{error}</div></section>;
   return (
     <section className="card">
-      <h2>API Connections</h2>
+      <h2>API connections</h2>
       <p className="muted small">Keys are encrypted at rest and never shown again — only a masked preview. Saving a key for <b>AI image rendering</b> turns on real renders immediately.</p>
       {conns.map((c) => <ConnRow key={c.service} c={c} onChange={reload} />)}
     </section>

@@ -11,20 +11,20 @@ import CostPanel from "./components/CostPanel.jsx";
 import DesignsBar from "./components/DesignsBar.jsx";
 
 const TIMES = [
-  ["day", "☀️ Day"],
-  ["dusk", "🌆 Dusk"],
-  ["evening", "🌙 Evening"],
+  ["day", "Day"],
+  ["dusk", "Dusk"],
+  ["evening", "Evening"],
 ];
 
 const VIEWS = [
-  ["hero", "🏡 House + yard"],
-  ["aerial", "🛰 Top-down"],
-  ["isometric", "🧊 3D overview"],
-  ["eye_level", "👀 Eye-level"],
-  ["front", "⬆️ Front"],
-  ["back", "⬇️ Back"],
-  ["left", "⬅️ Left"],
-  ["right", "➡️ Right"],
+  ["hero", "House + yard"],
+  ["aerial", "Top-down"],
+  ["isometric", "3D overview"],
+  ["eye_level", "Eye-level"],
+  ["front", "Front"],
+  ["back", "Back"],
+  ["left", "Left"],
+  ["right", "Right"],
 ];
 
 const SEARCH_KINDS = [
@@ -187,7 +187,7 @@ export default function App() {
             ? <button className="nav-btn primary" onClick={launch}>Launch app</button>
             : <button className="nav-btn" onClick={goHome}>← Home</button>}
           {user.role === "admin" && view !== "admin" &&
-            <button className="nav-btn" onClick={goAdmin}>⚙ Admin</button>}
+            <button className="nav-btn" onClick={goAdmin}>Admin</button>}
           {user.role === "admin" && <span className="role-badge">admin</span>}
           <span className="user-chip" title={user.email}>{user.email}</span>
           <button className="nav-btn" onClick={logout}>Sign out</button>
@@ -307,7 +307,7 @@ export default function App() {
               </div>
             )}
             <button type="button" className="primary block big" disabled={loading === "render"} onClick={generate}>
-              {loading === "render" ? "Generating…" : "✨ Generate design"}
+              {loading === "render" ? "Generating…" : "Generate design"}
             </button>
 
             <label className="lbl" style={{ marginTop: 18 }}>Estimated budget</label>
@@ -318,7 +318,7 @@ export default function App() {
         {/* SAVED DESIGNS */}
         {property && (
           <section className="card">
-            <h2><span className="num">★</span> My designs</h2>
+            <h2><span className="num dot">·</span> My designs</h2>
             <DesignsBar buildDesign={buildDesign} onLoad={loadDesign} />
           </section>
         )}
@@ -348,9 +348,9 @@ export default function App() {
             </div>
 
             <div className="actions">
-              <button type="button" className="primary" onClick={downloadAfter}>⬇ Export image</button>
-              <button type="button" onClick={downloadPdf}>📄 Client PDF</button>
-              <button type="button" onClick={() => window.print()}>🖨 Print</button>
+              <button type="button" className="primary" onClick={downloadAfter}>Export image</button>
+              <button type="button" onClick={downloadPdf}>Client PDF</button>
+              <button type="button" onClick={() => window.print()}>Print</button>
               <button type="button" onClick={() => setShowPrompt((v) => !v)}>
                 {showPrompt ? "Hide" : "View"} AI prompt
               </button>
