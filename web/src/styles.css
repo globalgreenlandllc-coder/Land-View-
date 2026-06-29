@@ -60,7 +60,8 @@ body {
 .how h2 { margin-bottom: 30px; }
 .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .step { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); }
-.step-icon { font-size: 26px; }
+.step-icon { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(21,128,61,.1); color: var(--green-600); font-weight: 800; font-size: 15px; }
 .step-n { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--green); margin: 10px 0 4px; }
 .step h3 { margin: 0 0 6px; font-size: 16px; }
 .step p { margin: 0; font-size: 13.5px; color: #54605a; line-height: 1.5; }
@@ -285,10 +286,14 @@ button:disabled { opacity: .55; cursor: default; }
 .site-legend .designable { margin-left: auto; color: var(--text); }
 .measure-line-svg { fill: none; stroke: #f59e0b; stroke-width: 0.5; stroke-dasharray: 1.5 1; }
 .measure-dot { fill: #f59e0b; stroke: #fff; stroke-width: 0.3; }
-.placed { position: absolute; transform: translate(-50%, -50%); cursor: grab; touch-action: none; }
+.placed { position: absolute; transform: translate(-50%, -50%); cursor: grab; touch-action: none;
+  display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .placed:active { cursor: grabbing; }
-.placed-emoji { font-size: 26px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
-.placed-x { position: absolute; top: -8px; right: -10px; width: 16px; height: 16px; padding: 0;
+.placed-pin { width: 13px; height: 13px; border-radius: 50%; background: var(--green);
+  border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.45); }
+.placed-label { font-size: 10.5px; font-weight: 600; color: #fff; background: rgba(20,32,26,.82);
+  padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+.placed-x { position: absolute; top: -9px; right: -11px; width: 16px; height: 16px; padding: 0;
   border-radius: 50%; background: #fff; border: 1px solid var(--line); font-size: 12px; line-height: 1;
   display: none; }
 .placed:hover .placed-x { display: block; }

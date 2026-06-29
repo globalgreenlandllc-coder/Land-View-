@@ -18,16 +18,15 @@ const PLANS = [
 ];
 
 const STEPS = [
-  ["📍", "Enter an address", "We pull the real satellite image and estimate the lot, house and backyard size."],
-  ["🎨", "Pick a style", "Modern, Tropical, Tuscan, Zen and more — each drives materials, plants and mood."],
-  ["✨", "Describe the vision", "“Kidney pool, cedar fence, stone patio…” — we render it on the real property."],
-  ["📤", "Share with clients", "Before/after, a client PDF, a cost estimate, and saved designs."],
+  ["Enter an address", "We pull the real satellite image and estimate the lot, house and backyard size."],
+  ["Pick a style", "Modern, Tropical, Tuscan, Zen and more — each drives materials, plants and mood."],
+  ["Describe the vision", "“Kidney pool, cedar fence, stone patio…” — we render it on the real property."],
+  ["Share with clients", "Before/after, a client PDF, a cost estimate, and saved designs."],
 ];
 
 const PLACEABLE = [
-  ["🏊", "Pools & spas"], ["🪵", "Decks & patios"], ["🔥", "Fire features"],
-  ["🌳", "Trees & plants"], ["🧱", "Fences & walls"], ["💡", "Lighting"],
-  ["⛱️", "Pergolas & gazebos"], ["🍳", "Outdoor kitchens"],
+  "Pools & spas", "Decks & patios", "Fire features", "Trees & plants",
+  "Fences & walls", "Lighting", "Pergolas & gazebos", "Outdoor kitchens",
 ];
 
 export default function Home({ styles, onStart }) {
@@ -56,9 +55,9 @@ export default function Home({ styles, onStart }) {
       <section className="how" id="how">
         <h2>From address to client-ready in four steps</h2>
         <div className="steps">
-          {STEPS.map(([icon, title, body], i) => (
+          {STEPS.map(([title, body], i) => (
             <div className="step" key={i}>
-              <div className="step-icon">{icon}</div>
+              <div className="step-icon">{i + 1}</div>
               <div className="step-n">Step {i + 1}</div>
               <h3>{title}</h3>
               <p>{body}</p>
@@ -85,8 +84,8 @@ export default function Home({ styles, onStart }) {
       <section className="placeable">
         <h2>Everything you'd put in a yard</h2>
         <div className="place-grid">
-          {PLACEABLE.map(([icon, label]) => (
-            <div className="place-item" key={label}><span>{icon}</span>{label}</div>
+          {PLACEABLE.map((label) => (
+            <div className="place-item" key={label}>{label}</div>
           ))}
         </div>
       </section>
