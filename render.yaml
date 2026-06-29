@@ -1,0 +1,34 @@
+# Render.com Blueprint — one-click deploy of Land-View as a single Docker service.
+# Deploy: push to GitHub, then on Render → New → Blueprint, pick this repo.
+# A persistent disk keeps the SQLite DB + generated secrets across restarts.
+# Provider API keys (OpenAI, Google, …) are added after first deploy via the
+# in-app Admin → API connections panel (stored encrypted on the disk), or set
+# them here as env vars.
+services:
+  - type: web
+    name: land-view
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    disk:
+      name: store
+      mountPath: /app/_store
+      sizeGB: 1
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: LANDVIEW_SECRET
+        generateValue: true
+      - key: PORT
+        value: "8000"
+      - key: HOST
+        value: "0.0.0.0"
+      # Optional: enable real renders / geocoding without the admin panel:
+      # - key: RENDER_PROVIDER
+      #   value: openai
+      # - key: OPENAI_API_KEY
+      #   sync: false
+      # - key: GEOCODER
+      #   value: google
+      # - key: GEOCODER_KEY
+      #   sync: false
