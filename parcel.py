@@ -151,19 +151,42 @@ def _setback_ring(ring, setback_ft: float = 15.0):
     return out
 
 
+def _detect_features(lat: float, lng: float) -> dict:
+    """Structure/driveway detection via the configured footprint provider."""
+    import connections
+    cfg = connections.get_footprint_config()
+    provider = cfg.get("provider") or "osm"
+    # Real providers (Microsoft Building Footprints / Google Open Buildings / a CV
+    # segmentation service) activate when configured; they return the same shape.
+    if provider in ("microsoft", "google_open_buildings", "cv") and cfg.get("api_key"):
+        try:
+            return _footprint_provider(provider, cfg, lat, lng)
+        except Exception as exc:
+            import sys
+            print(f"[footprint] provider '{provider}' failed: {exc}; using OSM",
+                  file=sys.stderr)
+    return geo.site_features(lat, lng)
+
+
+def _footprint_provider(provider, cfg, lat, lng):
+    # Placeholder for keyed footprint/CV services; expected to return
+    # {"structures": [ring,...], "access": [line,...]}. Wire per provider here.
+    raise NotImplementedError(f"footprint provider '{provider}' not configured")
+
+
 def _site_intelligence(rec: dict) -> dict:
-    """Attach structures (no-design zones), setback guide, and designable area."""
+    """Attach structures + driveway access (no-design zones), setback, designable area."""
     ring = rec.get("boundary")
-    structures = []
-    fp = geo.house_footprint(rec["lat"], rec["lng"])
-    if fp and fp.get("ring"):
-        structures.append(fp["ring"])
+    feats = _detect_features(rec["lat"], rec["lng"])
+    structures = feats.get("structures", [])
+    access = feats.get("access", [])
     setback = _setback_ring(ring) if ring else None
     designable = None
     if setback:
         designable = _ring_area_sqft(setback) - sum(_ring_area_sqft(s) for s in structures)
         designable = max(0, round(designable))
     rec["structures"] = structures
+    rec["access"] = access
     rec["setback"] = setback
     rec["designable_sqft"] = designable
     return rec

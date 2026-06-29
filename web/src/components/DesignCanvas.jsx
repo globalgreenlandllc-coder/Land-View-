@@ -41,6 +41,22 @@ function inPoly(x, y, poly) {
   return inside;
 }
 
+// Distance from point (px,py) to a polyline (array of [x,y]) in the same units.
+function distToLine(px, py, line) {
+  let min = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    const [x1, y1] = line[i - 1], [x2, y2] = line[i];
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy || 1e-9;
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    if (d < min) min = d;
+  }
+  return min;
+}
+const ACCESS_CLEARANCE = 0.025; // ~3 m clearance kept around driveways/walkways
+
 export default function DesignCanvas({ parcel, els, onChange }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
@@ -65,14 +81,18 @@ export default function DesignCanvas({ parcel, els, onChange }) {
   const parcelFr = parcel?.boundary ? ringToFractions(parcel.boundary) : [];
   const setbackFr = parcel?.setback ? ringToFractions(parcel.setback) : [];
   const structFr = (parcel?.structures || []).map(ringToFractions);
+  const accessFr = (parcel?.access || []).map(ringToFractions);
 
-  // Is (x,y) a legal spot? Inside the lot and not on any structure.
+  // Is (x,y) a legal spot? Inside the lot, off structures, and clear of access ways.
   function legalSpot(x, y) {
     if (parcelFr.length && !inPoly(x, y, parcelFr))
       return { ok: false, reason: "Outside the property line" };
     for (const s of structFr)
       if (s.length && inPoly(x, y, s))
         return { ok: false, reason: "On the house / structure — kept clear" };
+    for (const a of accessFr)
+      if (a.length > 1 && distToLine(x, y, a) < ACCESS_CLEARANCE)
+        return { ok: false, reason: "Blocks driveway / access — kept clear" };
     return { ok: true };
   }
 
@@ -169,6 +189,8 @@ export default function DesignCanvas({ parcel, els, onChange }) {
           {setbackFr.length > 0 && <polygon points={ptsToStr(setbackFr)} className="setback-poly" />}
           {structFr.map((s, i) => s.length > 0 &&
             <polygon key={i} points={ptsToStr(s)} className="structure-poly" />)}
+          {accessFr.map((a, i) => a.length > 1 &&
+            <polyline key={`a${i}`} points={ptsToStr(a)} className="access-line" />)}
           {measure && mpts.length > 0 &&
             <polyline points={mpts.map(([x, y]) => `${x * 100},${y * 100}`).join(" ")}
               className="measure-line-svg" />}
@@ -193,6 +215,7 @@ export default function DesignCanvas({ parcel, els, onChange }) {
         <span><i className="lg-boundary" /> Property line</span>
         <span><i className="lg-setback" /> Setback</span>
         <span><i className="lg-structure" /> No-design (structure)</span>
+        {accessFr.length > 0 && <span><i className="lg-access" /> Driveway / access</span>}
         {parcel?.designable_sqft != null &&
           <span className="designable">Designable area: <b>{parcel.designable_sqft.toLocaleString()} sq ft</b></span>}
       </div>
