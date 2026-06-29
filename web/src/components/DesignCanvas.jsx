@@ -31,45 +31,95 @@ const toMerc = (lng, lat) => [
 let _idc = 0;
 const newId = () => `el_${Date.now().toString(36)}_${_idc++}`;
 
+// Ray-casting point-in-polygon. `poly` is [[x,y],...] in any consistent units.
+function inPoly(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 export default function DesignCanvas({ parcel, els, onChange }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
+  const lastValidRef = useRef(null);
   const [measure, setMeasure] = useState(false);
   const [mpts, setMpts] = useState([]);
+  const [warning, setWarning] = useState("");
 
-  // Boundary polygon -> canvas fractions (0..1), via the satellite frame's mercator bbox.
-  function boundaryPoints() {
-    const ring = parcel?.boundary;
-    if (!ring || !ring.length) return "";
+  // Convert a geo ring ([[lng,lat],...]) to canvas fractions [[fx,fy],...] via the
+  // satellite frame's mercator bbox (same projection the image was rendered in).
+  function ringToFractions(ring) {
+    if (!ring || !ring.length) return [];
     const [cx, cy] = toMerc(parcel.lng, parcel.lat);
     const half = (SPAN_M / Math.cos(parcel.lat * Math.PI / 180)) / 2;
     return ring.map(([lng, lat]) => {
       const [mx, my] = toMerc(lng, lat);
-      const fx = (mx - (cx - half)) / (2 * half);
-      const fy = ((cy + half) - my) / (2 * half);
-      return `${(fx * 100).toFixed(2)},${(fy * 100).toFixed(2)}`;
-    }).join(" ");
+      return [(mx - (cx - half)) / (2 * half), ((cy + half) - my) / (2 * half)];
+    });
+  }
+  const ptsToStr = (fr) => fr.map(([x, y]) => `${(x * 100).toFixed(2)},${(y * 100).toFixed(2)}`).join(" ");
+
+  const parcelFr = parcel?.boundary ? ringToFractions(parcel.boundary) : [];
+  const setbackFr = parcel?.setback ? ringToFractions(parcel.setback) : [];
+  const structFr = (parcel?.structures || []).map(ringToFractions);
+
+  // Is (x,y) a legal spot? Inside the lot and not on any structure.
+  function legalSpot(x, y) {
+    if (parcelFr.length && !inPoly(x, y, parcelFr))
+      return { ok: false, reason: "Outside the property line" };
+    for (const s of structFr)
+      if (s.length && inPoly(x, y, s))
+        return { ok: false, reason: "On the house / structure — kept clear" };
+    return { ok: true };
   }
 
+  // Find an open-ground spot: parcel centroid first, else scan a grid for the
+  // first legal cell, so new elements never spawn on a structure or off-lot.
+  function openSpot() {
+    if (!parcelFr.length) return { x: 0.5, y: 0.5 };
+    const cx = parcelFr.reduce((s, p2) => s + p2[0], 0) / parcelFr.length;
+    const cy = parcelFr.reduce((s, p2) => s + p2[1], 0) / parcelFr.length;
+    if (legalSpot(cx, cy).ok) return { x: cx, y: cy };
+    for (let gy = 0.1; gy <= 0.9; gy += 0.1)
+      for (let gx = 0.1; gx <= 0.9; gx += 0.1)
+        if (legalSpot(gx, gy).ok) return { x: gx, y: gy };
+    return { x: cx, y: cy };
+  }
   function addEl(p) {
-    onChange([...(els || []), { id: newId(), type: p.type, label: p.label,
-      x: 0.5, y: 0.5, options: {} }]);
+    const { x, y } = openSpot();
+    onChange([...(els || []), { id: newId(), type: p.type, label: p.label, x, y, options: {} }]);
   }
   function removeEl(id) { onChange((els || []).filter((e) => e.id !== id)); }
 
   function startDrag(e, id) {
     e.preventDefault();
     dragRef.current = id;
+    const cur = (els || []).find((el) => el.id === id);
+    lastValidRef.current = cur ? { x: cur.x, y: cur.y } : { x: 0.5, y: 0.5 };
     const move = (ev) => {
       const r = ref.current.getBoundingClientRect();
-      const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-      const cy = (ev.touches ? ev.touches[0].clientY : ev.clientY);
-      const x = Math.min(1, Math.max(0, (cx - r.left) / r.width));
-      const y = Math.min(1, Math.max(0, (cy - r.top) / r.height));
-      onChange((els || []).map((el) => el.id === dragRef.current ? { ...el, x, y } : el));
+      const px = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+      const py = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+      const x = Math.min(1, Math.max(0, (px - r.left) / r.width));
+      const y = Math.min(1, Math.max(0, (py - r.top) / r.height));
+      const check = legalSpot(x, y);
+      if (check.ok) {
+        lastValidRef.current = { x, y };
+        setWarning("");
+        onChange((els || []).map((el) => el.id === dragRef.current ? { ...el, x, y } : el));
+      } else {
+        // Boundary lock / structure protection: hold at the last legal spot + warn.
+        setWarning(check.reason);
+        const lv = lastValidRef.current;
+        onChange((els || []).map((el) => el.id === dragRef.current ? { ...el, x: lv.x, y: lv.y } : el));
+      }
     };
     const up = () => {
       dragRef.current = null;
+      setTimeout(() => setWarning(""), 1800);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
@@ -115,8 +165,10 @@ export default function DesignCanvas({ parcel, els, onChange }) {
       <div className="canvas" ref={ref} onClick={clickCanvas}>
         <img src={parcel.satellite_url} alt="parcel" className="canvas-bg" draggable={false} />
         <svg className="canvas-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-          {boundaryPoints() &&
-            <polygon points={boundaryPoints()} className="boundary-poly" />}
+          {parcelFr.length > 0 && <polygon points={ptsToStr(parcelFr)} className="boundary-poly" />}
+          {setbackFr.length > 0 && <polygon points={ptsToStr(setbackFr)} className="setback-poly" />}
+          {structFr.map((s, i) => s.length > 0 &&
+            <polygon key={i} points={ptsToStr(s)} className="structure-poly" />)}
           {measure && mpts.length > 0 &&
             <polyline points={mpts.map(([x, y]) => `${x * 100},${y * 100}`).join(" ")}
               className="measure-line-svg" />}
@@ -133,7 +185,16 @@ export default function DesignCanvas({ parcel, els, onChange }) {
           </div>
         ))}
 
+        {warning && <div className="canvas-warning">⚠ {warning}</div>}
         <div className="scale-bar"><span /> ≈ {Math.round(SPAN_M * FT)} ft across</div>
+      </div>
+
+      <div className="site-legend">
+        <span><i className="lg-boundary" /> Property line</span>
+        <span><i className="lg-setback" /> Setback</span>
+        <span><i className="lg-structure" /> No-design (structure)</span>
+        {parcel?.designable_sqft != null &&
+          <span className="designable">Designable area: <b>{parcel.designable_sqft.toLocaleString()} sq ft</b></span>}
       </div>
 
       <div className="canvas-actions">

@@ -182,8 +182,11 @@ def _polygon_area_sqft(coords) -> float:
     return abs(area) / 2.0 * SQM_TO_SQFT
 
 
-def house_footprint_sqft(lat: float, lng: float) -> float | None:
-    """Nearest building footprint area near the point, if OSM has one."""
+def house_footprint(lat: float, lng: float) -> dict | None:
+    """
+    Nearest building footprint near the point, if OSM has one.
+    Returns {"area_sqft": int, "ring": [[lng,lat],...]} (GeoJSON ring order) or None.
+    """
     q = (f"[out:json][timeout:10];way(around:35,{lat},{lng})[building];"
          f"out geom;")
     try:
@@ -191,16 +194,25 @@ def house_footprint_sqft(lat: float, lng: float) -> float | None:
                          urllib.parse.urlencode({"data": q}))
     except Exception:
         return None
-    best = None
+    best_area, best_ring = None, None
     for el in data.get("elements", []):
         geom = el.get("geometry")
         if not geom:
             continue
-        coords = [(g["lat"], g["lon"]) for g in geom]
+        coords = [(g["lat"], g["lon"]) for g in geom]          # (lat, lng)
         area = _polygon_area_sqft(coords)
-        if area > 0 and (best is None or area > best):
-            best = area
-    return round(best) if best else None
+        if area > 0 and (best_area is None or area > best_area):
+            best_area = area
+            best_ring = [[g["lon"], g["lat"]] for g in geom]   # [lng, lat]
+    if not best_area:
+        return None
+    return {"area_sqft": round(best_area), "ring": best_ring}
+
+
+def house_footprint_sqft(lat: float, lng: float) -> float | None:
+    """Backwards-compatible area-only helper."""
+    fp = house_footprint(lat, lng)
+    return fp["area_sqft"] if fp else None
 
 
 # ---------------------------------------------------------------------------
