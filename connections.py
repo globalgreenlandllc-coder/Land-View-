@@ -50,6 +50,13 @@ SERVICES = {
         "endpoint_label": "Style URL (optional)",
         "wired": True,
     },
+    "footprint": {
+        "label": "Building-footprint / structure detection",
+        "providers": ["osm", "microsoft", "google_open_buildings", "cv"],
+        "secret_label": "API key / endpoint (not needed for OSM)",
+        "endpoint_label": "Service URL (microsoft/cv)",
+        "wired": True,
+    },
 }
 
 _ENV_KEY = {"openai": "OPENAI_API_KEY", "replicate": "REPLICATE_API_TOKEN", "fal": "FAL_KEY"}
@@ -89,6 +96,17 @@ def get_geocode_config() -> dict:
         return {"provider": row["provider"], "api_key": key, "endpoint": row["endpoint"] or ""}
     provider = (os.environ.get("GEOCODER") or "").lower().strip() or "nominatim"
     return {"provider": provider, "api_key": os.environ.get("GEOCODER_KEY", ""), "endpoint": ""}
+
+
+def get_footprint_config() -> dict:
+    """Active footprint/structure-detection config. DB then env. Default OSM (free)."""
+    row = store.get_connection("footprint")
+    if row is not None and row["provider"]:
+        key = crypto.decrypt(row["secret_enc"]) if row["secret_enc"] else ""
+        return {"provider": row["provider"], "api_key": key, "endpoint": row["endpoint"] or ""}
+    provider = (os.environ.get("FOOTPRINT_PROVIDER") or "").lower().strip() or "osm"
+    return {"provider": provider, "api_key": os.environ.get("FOOTPRINT_API_KEY", ""),
+            "endpoint": os.environ.get("FOOTPRINT_API_BASE", "")}
 
 
 def get_parcel_config() -> dict:

@@ -215,6 +215,38 @@ def house_footprint_sqft(lat: float, lng: float) -> float | None:
     return fp["area_sqft"] if fp else None
 
 
+def site_features(lat: float, lng: float, radius_m: int = 45) -> dict:
+    """
+    Detect on-site fixed features near the point via OSM Overpass:
+      * structures: every nearby building footprint as a closed ring [[lng,lat],...]
+      * access:     driveways / service ways / footpaths as polylines [[lng,lat],...]
+    Used to build no-design zones (structure protection + driveway preservation).
+    """
+    q = (f"[out:json][timeout:12];("
+         f"way(around:{radius_m},{lat},{lng})[building];"
+         f"way(around:{radius_m},{lat},{lng})[highway=service][service=driveway];"
+         f"way(around:{radius_m},{lat},{lng})[highway=footway];"
+         f");out geom;")
+    try:
+        data = _get_json("https://overpass-api.de/api/interpreter?" +
+                         urllib.parse.urlencode({"data": q}))
+    except Exception:
+        return {"structures": [], "access": []}
+    structures, access = [], []
+    for el in data.get("elements", []):
+        geom = el.get("geometry")
+        if not geom or len(geom) < 2:
+            continue
+        ring = [[g["lon"], g["lat"]] for g in geom]
+        tags = el.get("tags", {})
+        if tags.get("building"):
+            if len(ring) >= 3:
+                structures.append(ring)
+        else:  # driveway / footway -> access polyline
+            access.append(ring)
+    return {"structures": structures, "access": access}
+
+
 # ---------------------------------------------------------------------------
 # Public: full property intake
 # ---------------------------------------------------------------------------
