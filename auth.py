@@ -28,22 +28,36 @@ ACCESS_TTL = 30 * 60            # 30 minutes
 REFRESH_TTL = 30 * 24 * 60 * 60  # 30 days
 
 _SECRET_FILE = os.path.join(os.path.dirname(__file__), "_store", ".jwt_secret")
+_cached_secret = None
 
 
 def _secret() -> bytes:
+    """Signing key: $JWT_SECRET first (required on serverless), else a local file.
+    File I/O is best-effort so a read-only filesystem never crashes auth; set
+    JWT_SECRET in production so tokens stay valid across restarts/instances."""
+    global _cached_secret
     env = os.environ.get("JWT_SECRET")
     if env:
         return env.encode()
-    if os.path.exists(_SECRET_FILE):
-        with open(_SECRET_FILE, "rb") as fh:
-            return fh.read().strip()
-    os.makedirs(os.path.dirname(_SECRET_FILE), exist_ok=True)
+    if _cached_secret:
+        return _cached_secret
+    try:
+        if os.path.exists(_SECRET_FILE):
+            with open(_SECRET_FILE, "rb") as fh:
+                _cached_secret = fh.read().strip()
+                return _cached_secret
+    except OSError:
+        pass
     s = secrets.token_urlsafe(48).encode()
-    # Restrict perms where the OS supports it; ignore failures (e.g. on Windows).
-    fd = os.open(_SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(s)
-    return s
+    try:
+        os.makedirs(os.path.dirname(_SECRET_FILE), exist_ok=True)
+        fd = os.open(_SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(s)
+    except OSError:
+        pass  # read-only FS (serverless) — use the in-process value
+    _cached_secret = s
+    return _cached_secret
 
 
 # ---------------------------------------------------------------------------
