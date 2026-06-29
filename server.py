@@ -54,13 +54,18 @@ import store as designs
 from elements import ELEMENTS
 from styles import STYLES
 
-app = Flask(__name__)
+# In production the Flask app also serves the built SPA (web/dist) from the same
+# origin, so the whole product is one deployable service on one port.
+_WEB_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", "dist")
+app = Flask(__name__, static_folder=_WEB_DIST, static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024  # cap request bodies at 4 MB
-# Scope CORS to the local dev origins instead of "*".
-CORS(app, resources={r"/api/*": {"origins": [
+# CORS only matters for the split dev setup (Vite :5174 -> Flask :8000); in prod
+# the SPA is same-origin. Extra origins can be allowed via $CORS_ORIGINS (csv).
+_cors_origins = [
     "http://localhost:5174", "http://127.0.0.1:5174",
     "http://localhost:5173", "http://127.0.0.1:5173",
-]}})
+] + [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+CORS(app, resources={r"/api/*": {"origins": _cors_origins}})
 
 # SSRF-safe image fetching lives in netfetch.py and is shared with render.py.
 
@@ -68,6 +73,26 @@ CORS(app, resources={r"/api/*": {"origins": [
 @app.get("/api/health")
 def health():
     return jsonify({"ok": True, "render": render.render_status()})
+
+
+# ---------------------------------------------------------------------------
+# Serve the built SPA (production). API 404s stay JSON; other paths -> index.html.
+# ---------------------------------------------------------------------------
+
+@app.get("/")
+def _spa_root():
+    if os.path.exists(os.path.join(_WEB_DIST, "index.html")):
+        return app.send_static_file("index.html")
+    return jsonify({"ok": True, "note": "API up; SPA not built (run web build)."})
+
+
+@app.errorhandler(404)
+def _spa_fallback(_e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "not found"}), 404
+    if os.path.exists(os.path.join(_WEB_DIST, "index.html")):
+        return app.send_static_file("index.html")
+    return jsonify({"error": "not found"}), 404
 
 
 # ---------------------------------------------------------------------------

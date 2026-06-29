@@ -4,4 +4,5 @@
 flask>=3.0
 flask-cors>=4.0
 reportlab>=4.0
+gunicorn>=21.0   # production WSGI server
 
