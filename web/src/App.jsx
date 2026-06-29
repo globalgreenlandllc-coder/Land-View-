@@ -19,7 +19,12 @@ const TIMES = [
 const VIEWS = [
   ["hero", "🏡 House + yard"],
   ["aerial", "🛰 Top-down"],
+  ["isometric", "🧊 3D overview"],
   ["eye_level", "👀 Eye-level"],
+  ["front", "⬆️ Front"],
+  ["back", "⬇️ Back"],
+  ["left", "⬅️ Left"],
+  ["right", "➡️ Right"],
 ];
 
 const SEARCH_KINDS = [
