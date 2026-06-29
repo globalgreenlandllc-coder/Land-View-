@@ -46,6 +46,30 @@ VIEWS = {
         "height), with the house in the background and the designed landscaping in "
         "the foreground and mid-ground."
     ),
+    "isometric": (
+        "Isometric 3D overview of the entire property — an angled bird's-eye "
+        "axonometric view of the whole lot showing the house, all structures, and "
+        "the full landscape design in three dimensions with consistent scale, like "
+        "an architectural site model."
+    ),
+    "front": (
+        "Front elevation photograph of the property from the street, eye-level, "
+        "showing the house facade, the front yard, driveway and entry walk, and the "
+        "front landscaping head-on."
+    ),
+    "back": (
+        "Rear elevation photograph from the back of the lot looking toward the back "
+        "of the house, eye-level, showing the backyard design, patio/pool area and "
+        "rear facade head-on."
+    ),
+    "left": (
+        "Left-side elevation photograph of the property, eye-level, looking along "
+        "the left side yard with the side of the house and that side's landscaping."
+    ),
+    "right": (
+        "Right-side elevation photograph of the property, eye-level, looking along "
+        "the right side yard with the side of the house and that side's landscaping."
+    ),
 }
 DEFAULT_VIEW = "hero"
 
