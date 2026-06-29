@@ -1,19 +1,17 @@
 """
-store.py -- SQLite persistence for users and saved designs. Designs are owned by
-a user (user_id) and scoped per-account. A design is the full editable state:
-address/property, style, vision, elements, lighting.
+store.py -- Persistence for users, saved designs, API connections, and the audit
+log. Backed by PostgreSQL in production ($DATABASE_URL) or SQLite locally, via the
+db.py adapter. Designs are owned by a user (user_id) and scoped per-account.
 """
 from __future__ import annotations
 
 import json
-import os
 import secrets
-import sqlite3
 import threading
 from datetime import datetime, timezone
 
-_DIR = os.path.join(os.path.dirname(__file__), "_store")
-_DB = os.path.join(_DIR, "landview.db")
+import db as _dbmod
+
 _lock = threading.Lock()
 _conn = None
 
@@ -22,29 +20,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _db() -> sqlite3.Connection:
+def _db():
     global _conn
     if _conn is None:
-        os.makedirs(_DIR, exist_ok=True)
-        _conn = sqlite3.connect(_DB, check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _conn.execute("""CREATE TABLE IF NOT EXISTS designs (
-            id TEXT PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT, json TEXT)""")
-        _conn.execute("""CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY, email TEXT UNIQUE, password_hash TEXT,
-            role TEXT NOT NULL DEFAULT 'user', status TEXT NOT NULL DEFAULT 'active',
-            created_at TEXT)""")
-        _conn.execute("""CREATE TABLE IF NOT EXISTS api_connections (
-            service TEXT PRIMARY KEY, provider TEXT, endpoint TEXT,
-            secret_enc TEXT, updated_at TEXT, updated_by TEXT)""")
-        _conn.execute("""CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, actor_id TEXT,
-            actor_email TEXT, action TEXT, target TEXT, detail TEXT)""")
-        # Migration: older DBs have a designs table without user_id — add it once.
-        cols = {r["name"] for r in _conn.execute("PRAGMA table_info(designs)").fetchall()}
-        if "user_id" not in cols:
-            _conn.execute("ALTER TABLE designs ADD COLUMN user_id TEXT")
-        _conn.commit()
+        _conn = _dbmod.connect()
+        _dbmod.init_schema(_conn)
     return _conn
 
 
@@ -132,8 +112,10 @@ def save_design(payload: dict, user_id: str) -> dict:
             "time_of_day": payload.get("time_of_day", "day"),
             "view": payload.get("view", "hero"),
         }
-        c.execute("INSERT OR REPLACE INTO designs(id,name,created_at,updated_at,json,user_id) "
-                  "VALUES (?,?,?,?,?,?)",
+        c.execute("INSERT INTO designs(id,name,created_at,updated_at,json,user_id) "
+                  "VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                  "name=excluded.name, updated_at=excluded.updated_at, "
+                  "json=excluded.json, user_id=excluded.user_id",
                   (did, rec["name"], created, rec["updated_at"],
                    json.dumps(rec, default=str), user_id))
         c.commit()

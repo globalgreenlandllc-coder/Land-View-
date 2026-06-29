@@ -28,19 +28,37 @@ _SECRET_FILE = os.path.join(os.path.dirname(__file__), "_store", ".enc_secret")
 _VERSION = "v1"
 
 
+_cached_master = None
+
+
 def _master() -> bytes:
+    """Encryption master key: $LANDVIEW_SECRET first (required on serverless), else
+    a local file. File I/O is best-effort so a read-only filesystem never crashes;
+    set LANDVIEW_SECRET in production so stored keys stay decryptable across
+    restarts/instances."""
+    global _cached_master
     env = os.environ.get("LANDVIEW_SECRET")
     if env:
         return hashlib.sha256(env.encode()).digest()
-    if os.path.exists(_SECRET_FILE):
-        with open(_SECRET_FILE, "rb") as fh:
-            return fh.read().strip()
-    os.makedirs(os.path.dirname(_SECRET_FILE), exist_ok=True)
+    if _cached_master:
+        return _cached_master
+    try:
+        if os.path.exists(_SECRET_FILE):
+            with open(_SECRET_FILE, "rb") as fh:
+                _cached_master = fh.read().strip()
+                return _cached_master
+    except OSError:
+        pass
     key = secrets.token_bytes(32)
-    fd = os.open(_SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(key)
-    return key
+    try:
+        os.makedirs(os.path.dirname(_SECRET_FILE), exist_ok=True)
+        fd = os.open(_SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(key)
+    except OSError:
+        pass
+    _cached_master = key
+    return _cached_master
 
 
 def _hkdf(master: bytes, info: bytes, length: int = 32) -> bytes:
